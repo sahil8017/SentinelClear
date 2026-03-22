@@ -1,7 +1,7 @@
 # SentinelClear — Complete Testing Guide
 
 Step-by-step commands to test **every feature** of the project.  
-Run all commands in PowerShell from the project root (`c:\MAJOR\SentinelClear`).
+Run all commands in **PowerShell** from the project root (`c:\MAJOR\SentinelClear`).
 
 ---
 
@@ -11,21 +11,22 @@ Run all commands in PowerShell from the project root (`c:\MAJOR\SentinelClear`).
 # Build all containers from scratch
 docker compose build --no-cache
 
-# Start all 6 containers
+# Start all 7 containers in detached mode
 docker compose up -d
 
-# Wait ~15 seconds for databases and RabbitMQ to become healthy, then verify
+# Wait ~20 seconds for services to become healthy, then verify
 docker compose ps
 ```
 
-**Expected:** Six containers running — `postgres-db`, `rabbitmq`, `api-gateway`, `async-worker`, `prometheus`, `grafana`.
+**Expected:** All 7 containers show `healthy` — `postgres-db`, `rabbitmq`, `redis`, `api-gateway`, `async-worker`, `prometheus`, `grafana`.
 
 ```powershell
-# Check api-gateway logs for ML model loading
+# Confirm the ML fraud model loaded correctly
 docker logs api-gateway 2>&1 | Select-String "fraud|model|fallback"
 ```
 
-**Expected:** You should see `"ML fraud model loaded"` and `"Fraud detection service ready"`. If you see `"rule-based fallback"`, the model file wasn't mounted — check the volume mount.
+**Expected:** `"ML fraud model loaded"` and `"Fraud detection service ready"`.  
+If you see `"rule-based fallback"` — check that `model/fraud_model.pkl` exists and that the volume mount in `docker-compose.yml` is intact.
 
 ---
 
@@ -37,7 +38,7 @@ curl http://localhost:8000/health
 
 **Expected:**
 ```json
-{"status":"healthy","database":"healthy","rabbitmq":"healthy"}
+{"status":"healthy","database":"healthy","rabbitmq":"healthy","redis":"healthy"}
 ```
 
 ---
@@ -45,11 +46,11 @@ curl http://localhost:8000/health
 ## Step 2: API Documentation
 
 Open in browser:
-- **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
-- **OpenAPI JSON:** [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+- **Swagger UI:** http://localhost:8000/docs
+- **ReDoc:** http://localhost:8000/redoc
+- **OpenAPI JSON:** http://localhost:8000/openapi.json
 
-**Expected:** All endpoints listed with request/response schemas.
+**Expected:** All endpoints listed with correct request/response schemas.
 
 ---
 
@@ -62,7 +63,7 @@ curl -X POST http://localhost:8000/auth/register `
   -d '{"username":"alice","email":"alice@test.com","password":"pass123"}'
 ```
 
-**Expected:** `201` with user JSON (id, username, email, created_at).
+**Expected:** `201` with `{id, username, email, created_at}`.
 
 ```powershell
 # Register User 2 (Bob)
@@ -72,7 +73,7 @@ curl -X POST http://localhost:8000/auth/register `
 ```
 
 ```powershell
-# Test duplicate registration (should fail)
+# Duplicate registration — should fail
 curl -X POST http://localhost:8000/auth/register `
   -H "Content-Type: application/json" `
   -d '{"username":"alice","email":"alice@test.com","password":"pass123"}'
@@ -82,7 +83,7 @@ curl -X POST http://localhost:8000/auth/register `
 
 ---
 
-## Step 4: User Login + JWT Token
+## Step 4: Login & JWT Tokens
 
 ```powershell
 # Login as Alice
@@ -93,18 +94,14 @@ curl -X POST http://localhost:8000/auth/login `
 
 **Expected:** `200` with `{"access_token":"eyJ...","token_type":"bearer"}`.
 
-> **Save the token!** Copy the `access_token` value and use it below:
-
 ```powershell
-# Set tokens as variables for convenience
-$ALICE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzIiwiZXhwIjoxNzczMDUzMDU5fQ.Kl0GGEBJIVtR2ky1oaztwNnx0787moj4LI-LrGgM1Yk"
-$BOB_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0IiwiZXhwIjoxNzczMDUyODA0fQ.luMRLc259h0PXHmZ-H7ZT-P6TdJlIhdqbuCUel6NNJc"
+# Save tokens as PowerShell variables
+$ALICE_TOKEN = "PASTE_ALICE_TOKEN_HERE"
+$BOB_TOKEN   = "PASTE_BOB_TOKEN_HERE"
 ```
 
-(Login as Bob too and save his token.)
-
 ```powershell
-# Test wrong password (should fail)
+# Wrong password — should fail
 curl -X POST http://localhost:8000/auth/login `
   -H "Content-Type: application/json" `
   -d '{"username":"alice","password":"wrongpass"}'
@@ -114,14 +111,13 @@ curl -X POST http://localhost:8000/auth/login `
 
 ---
 
-## Step 5: Token-Protected Route (No Token)
+## Step 5: Protected Route Without Token
 
 ```powershell
-# Try accessing accounts without a token
 curl http://localhost:8000/accounts/test/balance
 ```
 
-**Expected:** `401`/`403` — proves that routes are protected.
+**Expected:** `401` or `403` — proves all account routes are JWT-protected.
 
 ---
 
@@ -135,19 +131,20 @@ curl -X POST http://localhost:8000/accounts `
   -d '{"account_type":"savings"}'
 ```
 
-**Expected:** `201` with account JSON (id = UUID, balance = 0.0).
-
-> **Save** Alice's `account_id` → `1f67dbfc-b314-4a2b-bbc5-3aee52a5c156`,   `009e99c5-662e-478e-ba01-7d2487161090`
+**Expected:** `201` with `{id (UUID), balance: 0.0, account_type, owner_id}`.
 
 ```powershell
-# Create a second account for Alice (checking)
+# Save Alice's account ID
+$ALICE_ACCT = "PASTE_ALICE_ACCOUNT_ID_HERE"
+```
+
+```powershell
+# Create a second account for Alice (checking) — proves multi-account support
 curl -X POST http://localhost:8000/accounts `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
   -d '{"account_type":"checking"}'
 ```
-
-**Expected:** Second account created — proves multiple accounts per user.
 
 ```powershell
 # Create Bob's account
@@ -155,14 +152,8 @@ curl -X POST http://localhost:8000/accounts `
   -H "Authorization: Bearer $BOB_TOKEN" `
   -H "Content-Type: application/json" `
   -d '{"account_type":"savings"}'
-```
 
-> **Save** Bob's `account_id` → `$BOB_ACCT`
-
-```powershell
-# Set account IDs as variables
-$ALICE_ACCT = "PASTE_ALICE_ACCOUNT_ID_HERE"
-$BOB_ACCT = "e34fa547-5044-403f-9877-ee72a562b7d3"
+$BOB_ACCT = "PASTE_BOB_ACCOUNT_ID_HERE"
 ```
 
 ---
@@ -170,17 +161,17 @@ $BOB_ACCT = "e34fa547-5044-403f-9877-ee72a562b7d3"
 ## Step 7: Deposits & Balance
 
 ```powershell
-# Deposit ₹100,000 into Alice's account
+# Deposit ₹1,00,000 into Alice's account
 curl -X POST http://localhost:8000/accounts/$ALICE_ACCT/deposit `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
   -d '{"amount":100000}'
 ```
 
-**Expected:** Account with `balance: 100000.0`.
+**Expected:** Account object with `balance: 100000.0`.
 
 ```powershell
-# Check balance
+# Check balance (reads from Redis cache on second call)
 curl http://localhost:8000/accounts/$ALICE_ACCT/balance `
   -H "Authorization: Bearer $ALICE_TOKEN"
 ```
@@ -188,7 +179,7 @@ curl http://localhost:8000/accounts/$ALICE_ACCT/balance `
 **Expected:** `{"account_id":"...","balance":100000.0}`.
 
 ```powershell
-# Deposit into Bob's account too
+# Deposit into Bob's account
 curl -X POST http://localhost:8000/accounts/$BOB_ACCT/deposit `
   -H "Authorization: Bearer $BOB_TOKEN" `
   -H "Content-Type: application/json" `
@@ -200,30 +191,26 @@ curl -X POST http://localhost:8000/accounts/$BOB_ACCT/deposit `
 ## Step 8: Normal Transfer (COMPLETED)
 
 ```powershell
-# Alice sends ₹5,000 to Bob (small amount — should pass fraud check)
+# Alice sends ₹5,000 to Bob — small amount, should pass fraud check
 curl -X POST http://localhost:8000/transfers `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"sender_account_id\":\"$ALICE_ACCT\",\"receiver_account_id\":\"$BOB_ACCT\",\"amount\":5000}"
+  -H "Idempotency-Key: $(New-Guid)" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":5000}"
 ```
 
 **Expected:** `201` with:
 ```json
 {
   "id": "uuid",
-  "sender_account_id": "...",
-  "receiver_account_id": "...",
-  "amount": 5000.0,
   "status": "COMPLETED",
-  "risk_score": 0.0,
-  "created_at": "..."
+  "amount": 5000.0,
+  "risk_score": 0.0
 }
 ```
 
-> **Key check:** `risk_score` is present (ML model scored it) and `status` is `COMPLETED`.
-
 ```powershell
-# Verify balances changed
+# Verify both balances updated atomically
 curl http://localhost:8000/accounts/$ALICE_ACCT/balance -H "Authorization: Bearer $ALICE_TOKEN"
 # Expected: 95000.0
 
@@ -233,19 +220,42 @@ curl http://localhost:8000/accounts/$BOB_ACCT/balance -H "Authorization: Bearer 
 
 ---
 
-## Step 9: Fraud-Flagged Transfer (FLAGGED)
-
-The ML model's threshold is **0.31**. For very large amounts, the model may flag it. The rule-based fallback flags anything above ₹50,000. Test with a large amount:
+## Step 9: Idempotency Check
 
 ```powershell
-# Alice tries to send ₹75,000 to Bob (may be flagged by ML or fallback)
+# Send the same transfer TWICE with identical Idempotency-Key
+$KEY = [System.Guid]::NewGuid().ToString()
+
 curl -X POST http://localhost:8000/transfers `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"sender_account_id\":\"$ALICE_ACCT\",\"receiver_account_id\":\"$BOB_ACCT\",\"amount\":75000}"
+  -H "Idempotency-Key: $KEY" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":1000}"
+
+# Repeat with the same key
+curl -X POST http://localhost:8000/transfers `
+  -H "Authorization: Bearer $ALICE_TOKEN" `
+  -H "Content-Type: application/json" `
+  -H "Idempotency-Key: $KEY" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":1000}"
 ```
 
-**If ML flags it** → `403`:
+**Expected:** Both calls return the **identical** transfer object. Alice's balance decreases by ₹1,000 only once.
+
+---
+
+## Step 10: Fraud-Flagged Transfer (FLAGGED)
+
+```powershell
+# Alice tries to send ₹75,000 — above the ₹50,000 rule-based threshold
+curl -X POST http://localhost:8000/transfers `
+  -H "Authorization: Bearer $ALICE_TOKEN" `
+  -H "Content-Type: application/json" `
+  -H "Idempotency-Key: $(New-Guid)" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":75000}"
+```
+
+**Expected:** `403`
 ```json
 {
   "detail": "Transaction blocked — flagged by fraud detection",
@@ -254,48 +264,47 @@ curl -X POST http://localhost:8000/transfers `
 }
 ```
 
-**If ML lets it through** → `201 COMPLETED` with risk_score (the ML model is smarter than a flat threshold — it may allow some large transfers).
-
-> **Note:** The ML model was trained on Amount + Time only (V1-V28 zeroed). Its real-world threshold behavior depends on the Amount feature's learned patterns. If you want to guarantee a flag for testing, temporarily stop the container, remove `model/fraud_model.pkl`, and restart — the fallback will flag anything > ₹50,000.
+> **Note:** The ML model is trained on the Amount feature primarily. If the model lets a large amount through, the rule-based fallback (threshold ₹50,000) will block it as a safety net.
 
 ---
 
-## Step 10: Insufficient Balance Transfer (FAILED)
+## Step 11: Insufficient Balance (FAILED)
 
 ```powershell
-# Alice tries to send more than her balance
 curl -X POST http://localhost:8000/transfers `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"sender_account_id\":\"$ALICE_ACCT\",\"receiver_account_id\":\"$BOB_ACCT\",\"amount\":999999}"
+  -H "Idempotency-Key: $(New-Guid)" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":999999}"
 ```
 
-**Expected:** `400` — `"Insufficient balance"`. A FAILED record is created in the DB with `risk_score`.
+**Expected:** `400` — `"Insufficient balance"`. A `FAILED` transfer record is still written to DB.
 
 ---
 
-## Step 11: Same-Account Transfer (Validation)
+## Step 12: Same-Account Transfer (Validation)
 
 ```powershell
 curl -X POST http://localhost:8000/transfers `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"sender_account_id\":\"$ALICE_ACCT\",\"receiver_account_id\":\"$ALICE_ACCT\",\"amount\":100}"
+  -H "Idempotency-Key: $(New-Guid)" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$ALICE_ACCT`",`"amount`":100}"
 ```
 
 **Expected:** `400` — `"Cannot transfer to the same account"`.
 
 ---
 
-## Step 12: Transaction History
+## Step 13: Transfer History
 
 ```powershell
-# Alice's full transfer history
+# All transfers involving Alice (as sender or receiver)
 curl http://localhost:8000/transfers/history/all `
   -H "Authorization: Bearer $ALICE_TOKEN"
 ```
 
-**Expected:** JSON array of all transfers where Alice is sender or receiver. Each entry has `status` (COMPLETED / FLAGGED / FAILED) and `risk_score`.
+**Expected:** JSON array. Each entry has `status` (COMPLETED / FLAGGED / FAILED) and `risk_score`.
 
 ```powershell
 # Get a specific transfer by ID
@@ -305,10 +314,34 @@ curl http://localhost:8000/transfers/PASTE_TRANSFER_ID_HERE `
 
 ---
 
-## Step 13: Audit Chain Verification
+## Step 14: Double-Entry Ledger
 
 ```powershell
-# Verify the tamper-evident audit log chain
+# View Alice's ledger (all DEBIT/CREDIT entries)
+curl http://localhost:8000/ledger/$ALICE_ACCT `
+  -H "Authorization: Bearer $ALICE_TOKEN"
+```
+
+**Expected:** Array of ledger entries with `entry_type` (DEBIT/CREDIT), `amount`, and `transfer_id`.
+
+```powershell
+# Verify ledger mathematical integrity
+curl http://localhost:8000/ledger/verify/integrity `
+  -H "Authorization: Bearer $ALICE_TOKEN"
+```
+
+**Expected:**
+```json
+{"balanced": true, "total_debits": 6000.0, "total_credits": 6000.0}
+```
+
+Proves that total debits == total credits across the entire ledger (no money creation or destruction).
+
+---
+
+## Step 15: Audit Chain Verification
+
+```powershell
 curl http://localhost:8000/audit/verify `
   -H "Authorization: Bearer $ALICE_TOKEN"
 ```
@@ -323,104 +356,91 @@ curl http://localhost:8000/audit/verify `
 }
 ```
 
-This proves every SHA-256 hash in the audit chain is valid.
-
 ---
 
-## Step 14: Async Worker (RabbitMQ)
+## Step 16: Async Worker (RabbitMQ)
 
 ```powershell
-# Check the async-worker logs
+# Check the async-worker received and processed events
 docker logs async-worker --tail 20
 ```
 
-**Expected:** Lines like:
+**Expected:**
 ```
 📝 Processing transfer event: id=... amount=5000.00 status=COMPLETED
 ✅ Event processed successfully: ...
 ```
 
-This proves the RabbitMQ consumer is receiving and processing events.
-
 ```powershell
-# Open RabbitMQ Management UI
-# URL: http://localhost:15672
-# Login: sentinel / sentinel_rabbit_2024 (or check your .env)
+# Open RabbitMQ Management UI: http://localhost:15672
+# Credentials are from your .env file
+# Check: queue "transfer_events" exists and has delivery activity
 ```
-
-**Check:**
-- Queue `transfer_events` exists
-- Messages are being consumed (Deliver/Get rate > 0)
 
 ---
 
-## Step 15: Prometheus Metrics
+## Step 17: Prometheus Metrics
 
 ```powershell
-# Raw metrics endpoint
 curl http://localhost:8000/metrics
 ```
 
-**Expected:** Prometheus text format with metrics like:
-- `http_requests_total` — request counts by endpoint and status
+**Expected:** Prometheus text format containing:
+- `http_requests_total` — counts by endpoint + status code
 - `http_request_duration_seconds` — latency histogram
 - `http_requests_in_progress` — concurrent request gauge
 
-```powershell
-# Open Prometheus UI
-# URL: http://localhost:9090
-# Try query: http_requests_total
-```
-
-**Check:** Target `sentinelclear-api` is UP under Status → Targets.
+Open **Prometheus UI** at http://localhost:9090 → Status → Targets → verify `sentinelclear-api` is **UP**.
 
 ---
 
-## Step 16: Grafana Dashboard
+## Step 18: Grafana Dashboard
 
 ```
-URL: http://localhost:3000
-Login: admin / admin
+URL:      http://localhost:3000
+Username: admin
+Password: (from your .env — GF_SECURITY_ADMIN_PASSWORD)
 ```
 
-**Check:**
-1. Data source `Prometheus` is connected (Settings → Data Sources)
-2. SentinelClear dashboard exists (Dashboards → Browse)
-3. Panels show live data for request rates, latency, error rates
+1. Settings → Data Sources → `Prometheus` should show ✅ Connected
+2. Dashboards → Browse → open `SentinelClear` dashboard
+3. Panels should show live request rate, latency (p50/p95/p99), and error rates
 
 ---
 
-## Step 17: Fallback Mode (ML Model Unavailable)
+## Step 19: Fallback Mode (ML Model Unavailable)
 
 ```powershell
 # Stop the api-gateway
 docker compose stop api-gateway
 
-# Temporarily rename the model file
+# Rename the model file to simulate unavailability
 Rename-Item -Path "model/fraud_model.pkl" -NewName "fraud_model.pkl.bak"
 
-# Restart the api-gateway
+# Restart the gateway
 docker compose start api-gateway
 
 # Wait a few seconds, then check logs
 docker logs api-gateway 2>&1 | Select-String "fallback"
 ```
 
-**Expected:** Log says `"Model file not found — using rule-based fallback"`.
+**Expected:** `"Model file not found — using rule-based fallback"`.
 
 ```powershell
-# Test: Small transfer should succeed
+# Small transfer — should succeed (rule-based allows <₹50,000)
 curl -X POST http://localhost:8000/transfers `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"sender_account_id\":\"$ALICE_ACCT\",\"receiver_account_id\":\"$BOB_ACCT\",\"amount\":1000}"
+  -H "Idempotency-Key: $(New-Guid)" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":1000}"
 # Expected: 201 COMPLETED
 
-# Test: Large transfer (>50,000) should be blocked by rule-based fallback
+# Large transfer — should be blocked by rule-based fallback
 curl -X POST http://localhost:8000/transfers `
   -H "Authorization: Bearer $ALICE_TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"sender_account_id\":\"$ALICE_ACCT\",\"receiver_account_id\":\"$BOB_ACCT\",\"amount\":60000}"
+  -H "Idempotency-Key: $(New-Guid)" `
+  -d "{`"sender_account_id`":`"$ALICE_ACCT`",`"receiver_account_id`":`"$BOB_ACCT`",`"amount`":60000}"
 # Expected: 403 FLAGGED
 ```
 
@@ -432,27 +452,28 @@ docker compose restart api-gateway
 
 ---
 
-## Step 18: Database Inspection
+## Step 20: Direct Database Inspection
 
 ```powershell
-# Connect to PostgreSQL inside Docker
 docker exec -it postgres-db psql -U sentinel -d sentinelclear
 ```
 
 ```sql
--- Check users
-SELECT id, username, email FROM users;
+-- Users
+SELECT id, username, email, created_at FROM users;
 
--- Check accounts
+-- Accounts and balances
 SELECT id, owner_id, account_type, balance FROM accounts;
 
--- Check transfers (note the risk_score column)
-SELECT id, sender_account_id, receiver_account_id, amount, status, risk_score FROM transfers;
+-- Transfers with fraud scores
+SELECT id, amount, status, risk_score, created_at FROM transfers ORDER BY created_at DESC LIMIT 10;
 
--- Check audit log chain
+-- Audit chain
 SELECT id, transfer_id, action, previous_hash, current_hash FROM audit_logs ORDER BY id;
 
--- Exit
+-- Double-entry ledger
+SELECT id, account_id, entry_type, amount, transfer_id FROM ledger_entries ORDER BY id;
+
 \q
 ```
 
@@ -460,18 +481,23 @@ SELECT id, transfer_id, action, previous_hash, current_hash FROM audit_logs ORDE
 
 ## Quick Reference — All Endpoints
 
-| Method | Endpoint | Auth | Purpose |
-|--------|----------|------|---------|
-| POST | `/auth/register` | ✗ | Create user |
-| POST | `/auth/login` | ✗ | Get JWT token |
-| POST | `/accounts` | ✓ | Create account |
-| GET | `/accounts/{id}/balance` | ✓ | Check balance |
-| POST | `/accounts/{id}/deposit` | ✓ | Deposit money |
-| POST | `/transfers` | ✓ | Execute transfer |
-| GET | `/transfers/{id}` | ✓ | Get transfer details |
-| GET | `/transfers/history/all` | ✓ | Full transfer history |
-| GET | `/audit/verify` | ✓ | Verify audit chain |
-| GET | `/health` | ✗ | System health |
-| GET | `/metrics` | ✗ | Prometheus metrics |
-| GET | `/docs` | ✗ | Swagger UI |
-| GET | `/redoc` | ✗ | ReDoc |
+| Method | Endpoint                           | Auth | Purpose                        |
+|--------|------------------------------------|------|--------------------------------|
+| POST   | `/auth/register`                   | ❌   | Create user                    |
+| POST   | `/auth/login`                      | ❌   | Get JWT token                  |
+| POST   | `/accounts`                        | ✅   | Create account                 |
+| GET    | `/accounts/{id}/balance`           | ✅   | Check balance                  |
+| POST   | `/accounts/{id}/deposit`           | ✅   | Deposit money                  |
+| POST   | `/transfers`                       | ✅   | Execute transfer               |
+| GET    | `/transfers/{id}`                  | ✅   | Get transfer detail            |
+| GET    | `/transfers/history/all`           | ✅   | Full transfer history          |
+| GET    | `/ledger/{account_id}`             | ✅   | Account ledger statement       |
+| GET    | `/ledger/verify/integrity`         | ✅   | Verify debit == credit         |
+| GET    | `/audit/verify`                    | ✅   | Verify SHA-256 audit chain     |
+| POST   | `/ai/translate-statement`          | ✅   | Translate to Indian languages  |
+| POST   | `/ai/insights`                     | ✅   | AI spending insights           |
+| POST   | `/ai/fraud-explain/{transfer_id}`  | ✅   | AI fraud explanation           |
+| GET    | `/health`                          | ❌   | System health check            |
+| GET    | `/metrics`                         | ❌   | Prometheus metrics             |
+| GET    | `/docs`                            | ❌   | Swagger UI                     |
+| GET    | `/redoc`                           | ❌   | ReDoc                          |
