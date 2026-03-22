@@ -1,6 +1,8 @@
 # 🛡️ SentinelClear v2.0
 
-**Production-grade banking backend** with double-entry ledger, idempotent transactions, ML fraud detection, hash-chained audit logs, Redis caching, rate limiting, DLQ fault tolerance, and Sarvam AI integration — built with FastAPI, PostgreSQL, RabbitMQ, Redis, Prometheus & Grafana.
+**Production-grade banking backend** — double-entry ledger, idempotent transactions, ML fraud detection, hash-chained audit logs, Redis caching, rate limiting, DLQ fault tolerance, and Sarvam AI integration.
+
+Built with **FastAPI · PostgreSQL · RabbitMQ · Redis · Prometheus · Grafana**.
 
 ---
 
@@ -13,150 +15,163 @@
 └──────────────┘     └──────────────┘     │  :8000       │
                                           └──────┬───────┘
                                                  │
-                                    ┌────────────┼────────────┬────────────┐
-                                    │            │            │            │
-                              ┌─────▼─────┐ ┌───▼───┐ ┌─────▼─────┐ ┌────▼────┐
-                              │ PostgreSQL │ │RabbitMQ│ │  Async    │ │  Redis  │
-                              │ :5432      │ │ :5672  │ │  Worker   │ │  :6379  │
-                              └───────────┘ │ + DLQ  │ └───────────┘ └─────────┘
-                                            └────────┘
+                        ┌────────────────────────┼──────────────────┬─────────────┐
+                        │                        │                  │             │
+                  ┌─────▼─────┐           ┌──────▼──────┐  ┌───────▼──────┐ ┌───▼────┐
+                  │ PostgreSQL │           │  RabbitMQ   │  │ Async Worker │ │ Redis  │
+                  │  :5432     │           │  :5672+DLQ  │  │ (Consumer)   │ │ :6379  │
+                  └───────────┘           └─────────────┘  └──────────────┘ └────────┘
 ```
 
 ### Containers (7)
 
-| Container      | What it runs                          |
-|----------------|---------------------------------------|
-| `api-gateway`  | FastAPI application (v2.0)            |
-| `postgres-db`  | PostgreSQL 16 database                |
-| `rabbitmq`     | RabbitMQ 3.13 + DLQ topology          |
-| `redis`        | Redis 7 (balance cache, rate limiter) |
-| `async-worker` | Event consumer with retry logic       |
-| `prometheus`   | Metrics collector (scrapes /metrics)  |
-| `grafana`      | Live monitoring dashboard             |
+| Container      | Role                                      |
+|----------------|-------------------------------------------|
+| `api-gateway`  | FastAPI REST API (v2.0)                   |
+| `postgres-db`  | PostgreSQL 16 — primary data store        |
+| `rabbitmq`     | RabbitMQ 3.13 — messaging + DLQ topology  |
+| `redis`        | Redis 7 — balance cache + rate limiter    |
+| `async-worker` | RabbitMQ consumer with retry logic        |
+| `prometheus`   | Metrics scraper (`/metrics`)              |
+| `grafana`      | Live observability dashboards             |
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Docker** & **Docker Compose** installed
 
-### Launch
+- [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2+
+
+### Setup & Launch
 
 ```bash
+# 1. Clone and enter the repo
+git clone https://github.com/your-username/SentinelClear.git
 cd SentinelClear
 
-# 1. Setup environment variables (edit .env with your real keys)
+# 2. Create your environment file and fill in your secrets
 cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD, JWT_SECRET_KEY, SARVAM_API_KEY, etc.
 
-# 2. Start all 7 containers
+# 3. Start all 7 containers
 docker compose up --build -d
 
-
-# Wait ~20s for services to become healthy
+# 4. Verify all services are healthy (~20s)
 docker compose ps
 
-# Run the full test suite
+# 5. Run the end-to-end test suite
 python tests/test_everything.py
 ```
 
 ### Access Points
 
-| Service         | URL                          |
-|-----------------|------------------------------|
-| API Docs        | http://localhost:8000/docs    |
-| API Health      | http://localhost:8000/health  |
-| Prometheus      | http://localhost:9090         |
-| Grafana         | http://localhost:3000         |
-| RabbitMQ Mgmt   | http://localhost:15672        |
-
-> **Grafana credentials:** admin / admin
-> **RabbitMQ credentials:** sentinel / sentinel_rabbit_2024
+| Service        | URL                           | Credentials              |
+|----------------|-------------------------------|--------------------------|
+| Swagger UI     | http://localhost:8000/docs    | —                        |
+| API Health     | http://localhost:8000/health  | —                        |
+| Prometheus     | http://localhost:9090         | —                        |
+| Grafana        | http://localhost:3000         | admin / *(from .env)*    |
+| RabbitMQ Mgmt  | http://localhost:15672        | sentinel / *(from .env)* |
 
 ---
 
 ## 📡 API Endpoints
 
-### Core Banking
+### Authentication
+| Method | Endpoint          | Description              | Auth |
+|--------|-------------------|--------------------------|------|
+| POST   | `/auth/register`  | Register new user        | ❌   |
+| POST   | `/auth/login`     | Login → JWT access token | ❌   |
+
+### Accounts
 | Method | Endpoint                    | Description                     | Auth |
 |--------|-----------------------------|---------------------------------|------|
-| POST   | `/auth/register`            | Register a new user             | ❌    |
-| POST   | `/auth/login`               | Login, get JWT token            | ❌    |
-| POST   | `/accounts`                 | Create a bank account           | ✅    |
-| GET    | `/accounts/{id}/balance`    | Check balance (Redis-cached)    | ✅    |
-| POST   | `/accounts/{id}/deposit`    | Deposit money                   | ✅    |
-| POST   | `/transfers`                | Send money (idempotent)         | ✅    |
-| GET    | `/transfers/{id}`           | Get one transaction detail      | ✅    |
-| GET    | `/transfers/history/all`    | See all your transactions       | ✅    |
+| POST   | `/accounts`                 | Create bank account             | ✅   |
+| GET    | `/accounts/{id}/balance`    | Balance read (Redis → Snap → DB)| ✅   |
+| POST   | `/accounts/{id}/deposit`    | Deposit funds                   | ✅   |
+
+### Transfers
+| Method | Endpoint                    | Description                     | Auth |
+|--------|-----------------------------|---------------------------------|------|
+| POST   | `/transfers`                | Execute idempotent transfer     | ✅   |
+| GET    | `/transfers/{id}`           | Get transfer details            | ✅   |
+| GET    | `/transfers/history/all`    | Full transfer history           | ✅   |
 
 ### Double-Entry Ledger
 | Method | Endpoint                    | Description                     | Auth |
 |--------|-----------------------------|---------------------------------|------|
-| GET    | `/ledger/{account_id}`      | Account statement (all entries) | ✅    |
-| GET    | `/ledger/verify/integrity`  | Verify debits == credits        | ✅    |
+| GET    | `/ledger/{account_id}`      | Account statement               | ✅   |
+| GET    | `/ledger/verify/integrity`  | Verify debits == credits        | ✅   |
 
-### Audit & Verification
-| Method | Endpoint                    | Description                     | Auth |
-|--------|-----------------------------|---------------------------------|------|
-| GET    | `/audit/verify`             | Verify SHA-256 audit chain      | ✅    |
+### Audit
+| Method | Endpoint        | Description                 | Auth |
+|--------|-----------------|-----------------------------|------|
+| GET    | `/audit/verify` | Verify SHA-256 chain        | ✅   |
 
 ### AI (Sarvam)
-| Method | Endpoint                           | Description                     | Auth |
-|--------|------------------------------------|---------------------------------|------|
-| POST   | `/ai/translate-statement`          | Translate text to Indian langs  | ✅    |
-| POST   | `/ai/insights`                     | AI spending insights            | ✅    |
-| POST   | `/ai/fraud-explain/{transfer_id}`  | AI fraud analysis explanation   | ✅    |
+| Method | Endpoint                           | Description                      | Auth |
+|--------|------------------------------------|------------------------------------|------|
+| POST   | `/ai/translate-statement`          | Translate to 22+ Indian languages | ✅   |
+| POST   | `/ai/insights`                     | AI spending pattern insights      | ✅   |
+| POST   | `/ai/fraud-explain/{transfer_id}`  | Human-readable fraud explanation  | ✅   |
 
 ### System
-| Method | Endpoint   | Description              | Auth |
-|--------|------------|--------------------------|------|
-| GET    | `/metrics` | Raw Prometheus metrics   | ❌    |
-| GET    | `/health`  | System health (DB+RMQ+Redis) | ❌    |
+| Method | Endpoint    | Description                   | Auth |
+|--------|-------------|-------------------------------|------|
+| GET    | `/metrics`  | Raw Prometheus metrics        | ❌   |
+| GET    | `/health`   | DB + RabbitMQ + Redis status  | ❌   |
 
 ---
 
 ## ⚙️ Key Features
 
 ### 💸 Double-Entry Ledger
-Every transfer creates paired DEBIT + CREDIT entries. `GET /ledger/verify/integrity` ensures no money is created or destroyed — total debits must equal total credits.
+Every transfer atomically creates paired DEBIT + CREDIT entries. `GET /ledger/verify/integrity` guarantees no money is created or destroyed.
 
 ### 🔁 Idempotent Transactions
-Send an `Idempotency-Key` header on `POST /transfers`. Same key → same response. No duplicate transfers. Keys expire after 24 hours.
+Send an `Idempotency-Key` header (UUIDv4) on `POST /transfers`. Duplicate requests return the cached original response. Keys expire after 24 hours (Redis TTL).
 
 ### ⚡ Concurrency Control
-PostgreSQL `SELECT ... FOR UPDATE` with ordered lock acquisition prevents race conditions and deadlocks.
+PostgreSQL `SELECT ... FOR UPDATE` with **deterministic lock ordering** (lower UUID first) prevents deadlocks under concurrent transfers.
 
 ### 🚨 Hybrid Fraud Detection
-ML model (Random Forest trained on 284K transactions) + rule-based fallback. Transactions scoring above the tuned threshold are **FLAGGED** and blocked.
+Random Forest (284K-transaction training set) + rule-based fallback. Scores above the tuned threshold (0.31) result in a `FLAGGED` + `403` response.
 
 ### 📜 Tamper-Proof Audit Logs
-SHA-256 hash-chained entries. Each log contains the hash of the previous entry. `GET /audit/verify` walks the entire chain.
+SHA-256 hash-chained entries. Each entry includes the previous entry's hash. `GET /audit/verify` walks the entire chain and reports any tampered position.
 
-### 🔄 Event-Driven + DLQ
-RabbitMQ with Dead Letter Queue. Failed messages retry 3× with tracking via `x-death` headers. Permanently failed messages route to DLQ for alerting.
+### 🔄 Event-Driven Architecture + DLQ
+RabbitMQ publishes `transfer_events` for every transaction. Failed consumers retry 3× with exponential backoff. Permanently failed messages route to a Dead Letter Queue.
 
-### ⚡ Redis Caching
-3-layer balance reads: Redis (5min TTL) → BalanceSnapshot → DB. Cache invalidated on every transfer and deposit.
+### ⚡ 3-Layer Redis Caching
+Balance reads follow: **Redis (5min TTL) → BalanceSnapshot → Full DB query**. Cache is invalidated on every deposit and transfer.
 
-### 🛑 Rate Limiting
-Redis-backed sliding window: 10 login/min, 5 register/min, 30 transfers/min. Returns 429 with `Retry-After` header.
+### 🛑 Sliding-Window Rate Limiting
+Redis-backed: 5 register/min, 10 login/min, 30 transfers/min. Returns `429` with `Retry-After` header.
 
 ### 🤖 Sarvam AI Integration
-- **Translate** — Transaction narrations to 22+ Indian languages
+- **Translate** — Transaction narrations to Hindi, Tamil, Telugu, Bengali, and 18 more Indian languages
 - **Insights** — AI-powered spending pattern analysis
-- **Fraud Explain** — Human-readable explanations for flagged transfers
+- **Fraud Explain** — Plain-language explanations for flagged transactions
 
 ### 📊 Observability
-Prometheus metrics + Grafana dashboards for API latency, throughput, and error rates.
+Prometheus scrapes `/metrics` every 15s. Grafana dashboards show API latency, throughput, error rates, and per-endpoint statistics.
 
 ---
 
-## 🔄 Transaction Flow
+## 🔄 Transaction Pipeline
 
 ```
-Request → Idempotency Check → Fraud Scoring (ML) → Atomic Transfer (FOR UPDATE)
-  → Double-Entry Ledger → Balance Snapshots → Redis Invalidation
-  → Audit Log (SHA-256) → RabbitMQ Event → Async Worker
+POST /transfers
+  └─► Idempotency key check (Redis)
+      └─► Fraud scoring (Random Forest → rule-based fallback)
+          └─► SELECT FOR UPDATE (ordered locking, deadlock-safe)
+              └─► Debit sender / Credit receiver (atomic)
+                  └─► Double-entry ledger entries
+                      └─► BalanceSnapshot update + Redis invalidation
+                          └─► SHA-256 audit log entry
+                              └─► RabbitMQ publish → Async Worker
 ```
 
 ---
@@ -165,44 +180,44 @@ Request → Idempotency Check → Fraud Scoring (ML) → Atomic Transfer (FOR UP
 
 ```
 SentinelClear/
-├── docker-compose.yml          # 7-container orchestration
-├── Dockerfile                  # API gateway image
-├── .env                        # Environment variables
-├── requirements.txt            # Python dependencies
-├── alembic.ini                 # Migration config
-├── alembic/versions/           # 001, 002, 003 migrations
+├── docker-compose.yml            # 7-container orchestration
+├── Dockerfile                    # API gateway image
+├── .env.example                  # Environment variable template
+├── requirements.txt              # Python dependencies
+├── alembic.ini                   # Migration config
+├── alembic/versions/             # 001, 002, 003 migrations
 ├── app/
-│   ├── main.py                 # FastAPI entry point (v2.0)
-│   ├── config.py               # Settings (DB, RMQ, Redis, Sarvam, JWT)
-│   ├── database.py             # Async SQLAlchemy engine
-│   ├── models.py               # 7 ORM models
-│   ├── schemas.py              # Pydantic request/response schemas
-│   ├── dependencies.py         # JWT auth guard
+│   ├── main.py                   # FastAPI entry point
+│   ├── config.py                 # Settings (pydantic-settings, env-sourced)
+│   ├── database.py               # Async SQLAlchemy engine
+│   ├── models.py                 # ORM models (User, Account, Transfer, …)
+│   ├── schemas.py                # Pydantic request/response schemas
+│   ├── dependencies.py           # JWT auth guard
 │   ├── routers/
-│   │   ├── auth.py             # Register & login (rate-limited)
-│   │   ├── accounts.py         # Account CRUD (Redis-cached)
-│   │   ├── transfers.py        # 9-step transfer pipeline
-│   │   ├── ledger.py           # Double-entry statement & verification
-│   │   ├── audit.py            # Hash chain verification
-│   │   └── ai.py               # Sarvam AI endpoints
+│   │   ├── auth.py               # Register & login (rate-limited)
+│   │   ├── accounts.py           # Account CRUD (Redis-cached balance)
+│   │   ├── transfers.py          # 9-step transfer pipeline
+│   │   ├── ledger.py             # Double-entry statement & verification
+│   │   ├── audit.py              # Hash-chain verification
+│   │   └── ai.py                 # Sarvam AI endpoints
 │   └── services/
-│       ├── fraud.py            # ML + rule-based fraud scoring
-│       ├── audit.py            # SHA-256 hash chain
-│       ├── ledger.py           # Double-entry accounting
-│       ├── idempotency.py      # Idempotency key management
-│       ├── cache.py            # Redis balance caching
-│       ├── rate_limit.py       # Sliding window rate limiter
-│       ├── sarvam.py           # Sarvam AI client
-│       └── rabbitmq.py         # RabbitMQ publisher + DLQ
+│       ├── fraud.py              # ML + rule-based fraud scoring
+│       ├── audit.py              # SHA-256 hash-chain writer
+│       ├── ledger.py             # Double-entry accounting
+│       ├── idempotency.py        # Idempotency key management
+│       ├── cache.py              # Redis balance caching
+│       ├── rate_limit.py         # Sliding-window rate limiter
+│       ├── sarvam.py             # Sarvam AI HTTP client
+│       └── rabbitmq.py           # Publisher + DLQ topology setup
 ├── worker/
 │   ├── Dockerfile
-│   └── consumer.py             # Event consumer + DLQ handler
+│   └── consumer.py               # Event consumer + DLQ handler
 ├── model/
-│   ├── train_model.py          # ML training script
-│   ├── fraud_model.pkl         # Trained sklearn pipeline
-│   └── threshold.json          # Tuned decision threshold
+│   ├── train_model.py            # ML training script
+│   ├── fraud_model.pkl           # Trained sklearn pipeline (gitignored)
+│   └── threshold.json            # Tuned decision threshold (0.31)
 ├── tests/
-│   └── test_everything.py      # 20-section end-to-end test suite
+│   └── test_everything.py        # 20-section end-to-end test suite
 └── monitoring/
     ├── prometheus.yml
     └── grafana/provisioning/
@@ -212,40 +227,40 @@ SentinelClear/
 
 ## ⚙️ Tech Stack
 
-| Layer           | Technology                        |
-|-----------------|-----------------------------------|
-| API             | FastAPI + Uvicorn                 |
-| Database        | PostgreSQL 16 + SQLAlchemy 2.0    |
-| Cache           | Redis 7                           |
-| Auth            | JWT (python-jose) + bcrypt        |
-| Messaging       | RabbitMQ + aio-pika + DLQ         |
-| AI              | Sarvam AI (translate, chat)       |
-| Fraud Detection | scikit-learn (Random Forest)      |
-| Monitoring      | Prometheus + Grafana              |
-| Containerisation| Docker Compose (7 containers)     |
+| Layer            | Technology                           |
+|------------------|--------------------------------------|
+| API Framework    | FastAPI 0.115 + Uvicorn              |
+| Database         | PostgreSQL 16 + SQLAlchemy 2.0 async |
+| Cache            | Redis 7 (aioredis)                   |
+| Auth             | JWT (python-jose) + bcrypt           |
+| Messaging        | RabbitMQ 3.13 + aio-pika + DLQ      |
+| AI               | Sarvam AI (translate + chat)         |
+| Fraud Detection  | scikit-learn — Random Forest         |
+| Monitoring       | Prometheus + Grafana                 |
+| Containerisation | Docker Compose (7 containers)        |
 
 ---
 
 ## 🧪 Testing
 
 ```bash
-# Run the full end-to-end test suite (20 sections, 60+ assertions)
+# Full end-to-end suite (20 sections, 60+ assertions)
 python tests/test_everything.py
 ```
 
-Tests cover: health, API docs, metrics, registration, login, token protection, accounts, deposits, transfers with idempotency, double-entry ledger, ledger integrity, same-account validation, insufficient balance, fraud detection, transaction history, audit chain, Sarvam AI translation, AI insights, and ownership checks.
+Covers: health, Swagger, metrics, registration, login, token protection, account creation, deposits, idempotent transfers, double-entry ledger, ledger integrity, same-account validation, insufficient balance, fraud detection, transfer history, SHA-256 audit chain, Sarvam AI translation, AI insights, and ownership checks.
 
 ---
 
-## 🛑 Stopping
+## 🛑 Teardown
 
 ```bash
-docker compose down           # Stop containers
-docker compose down -v        # Stop + remove volumes (wipe data)
+docker compose down           # Stop containers, preserve volumes
+docker compose down -v        # Stop + wipe all data volumes
 ```
 
 ---
 
-## 🎯 One-Line Summary
+## 🎯 Summary
 
-> Built a production-grade fintech backend with double-entry ledger, idempotent transactions, ML fraud detection, hash-chained audit logs, Redis caching, rate limiting, DLQ fault tolerance, and Sarvam AI integration — ensuring financial consistency and complete traceability.
+> Production-grade fintech backend implementing double-entry accounting, idempotent APIs, ML-powered fraud detection (Random Forest + rule-based fallback), tamper-proof SHA-256 audit logs, 3-layer Redis caching, sliding-window rate limiting, Dead Letter Queue fault tolerance, and Sarvam AI NLP — ensuring financial consistency, complete auditability, and production observability.
