@@ -1,10 +1,12 @@
 """SQLAlchemy ORM models for SentinelClear."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 
 from sqlalchemy import (
+    Boolean,
     Column,
+    Date,
     DateTime,
     Enum as SAEnum,
     Float,
@@ -66,7 +68,8 @@ class Transfer(Base):
         default="COMPLETED",
         nullable=False,
     )
-    risk_score = Column(Float, nullable=True, default=None)  # ML fraud probability [0.0–1.0]
+    risk_score = Column(Float, nullable=True, default=None)
+    fraud_rules_triggered = Column(Text, nullable=True)  # JSON list of triggered rule names
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sender_account = relationship("Account", foreign_keys=[sender_account_id])
@@ -75,6 +78,7 @@ class Transfer(Base):
     __table_args__ = (
         Index("ix_transfers_sender", "sender_account_id"),
         Index("ix_transfers_receiver", "receiver_account_id"),
+        Index("ix_transfers_created", "created_at"),
     )
 
 
@@ -86,10 +90,10 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     transfer_id = Column(String(36), nullable=False)
-    action = Column(String(50), nullable=False)       # e.g. TRANSFER_COMPLETED, TRANSFER_FLAGGED
-    details = Column(Text, nullable=True)              # JSON-serialised payload
-    previous_hash = Column(String(64), nullable=False) # SHA-256 hex of previous entry
-    current_hash = Column(String(64), nullable=False)  # SHA-256 hex of this entry
+    action = Column(String(50), nullable=False)
+    details = Column(Text, nullable=True)
+    previous_hash = Column(String(64), nullable=False)
+    current_hash = Column(String(64), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -148,3 +152,90 @@ class BalanceSnapshot(Base):
     snapshot_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     account = relationship("Account", foreign_keys=[account_id])
+
+
+# ────────────────────────────── Notification ──────────────────────────────
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    notification_type = Column(String(50), nullable=False)  # TRANSFER_SENT, TRANSFER_RECEIVED, FRAUD_ALERT
+    reference_id = Column(String(36), nullable=True)        # transfer_id or related entity
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        Index("ix_notifications_user_read", "user_id", "is_read"),
+        Index("ix_notifications_created", "created_at"),
+    )
+
+
+# ────────────────────────────── Account Daily Stats ──────────────────────────────
+
+
+class AccountDailyStat(Base):
+    __tablename__ = "account_daily_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
+    stat_date = Column(Date, nullable=False)
+    total_sent = Column(Float, default=0.0, nullable=False)
+    total_received = Column(Float, default=0.0, nullable=False)
+    transfer_count = Column(Integer, default=0, nullable=False)
+    flagged_count = Column(Integer, default=0, nullable=False)
+
+    account = relationship("Account", foreign_keys=[account_id])
+
+    __table_args__ = (
+        Index("ix_daily_stats_account_date", "account_id", "stat_date", unique=True),
+    )
+
+
+# ────────────────────────────── Fraud Rule Config ──────────────────────────────
+
+
+class FraudRuleConfig(Base):
+    """Runtime-configurable fraud rule weights and thresholds.
+
+    Seeded at startup from Settings defaults. Admin can tune via API
+    to close the detect → review → tune → re-detect feedback loop.
+    """
+    __tablename__ = "fraud_rule_configs"
+
+    rule_name = Column(String(50), primary_key=True)
+    weight = Column(Float, nullable=False, default=1.0)
+    enabled = Column(Boolean, default=True, nullable=False)
+    threshold_value = Column(Float, nullable=True)  # rule-specific threshold
+    description = Column(String(200), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ────────────────────────────── Reconciliation Log ──────────────────────────────
+
+
+class ReconciliationLog(Base):
+    """Records from scheduled balance-vs-ledger integrity checks."""
+    __tablename__ = "reconciliation_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    total_accounts = Column(Integer, nullable=False)
+    accounts_checked = Column(Integer, nullable=False)
+    discrepancies_found = Column(Integer, nullable=False, default=0)
+    discrepancy_details = Column(Text, nullable=True)  # JSON list of {account_id, stored, computed, diff}
+    status = Column(
+        SAEnum("PASSED", "FAILED", "ERROR", name="reconciliation_status"),
+        nullable=False,
+    )
+    duration_ms = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_reconciliation_run", "run_at"),
+    )

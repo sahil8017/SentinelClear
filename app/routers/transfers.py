@@ -1,4 +1,4 @@
-"""Transfers router — atomic money transfers with ML fraud scoring,
+"""Transfers router — atomic money transfers with rule-based fraud scoring,
 idempotency, double-entry ledger, balance snapshots, and rate limiting."""
 
 import json
@@ -15,7 +15,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Account, BalanceSnapshot, Transfer, User
 from app.schemas import TransferOut, TransferRequest, FraudBlockedResponse
-from app.services.fraud import predict_fraud
+from app.services.fraud import score_transaction
 from app.services.audit import create_audit_entry
 from app.services.rabbitmq import publish_transfer_event
 from app.services.ledger import create_double_entry
@@ -61,8 +61,8 @@ async def create_transfer(
     Processing pipeline:
     1. Idempotency check (if header present)
     2. Input validation (same-account check)
-    3. ML fraud scoring — BEFORE any database transaction starts
-    4. If flagged → record FLAGGED transfer + audit entry, return 403
+    3. Rule-based fraud scoring — velocity, amount, daily volume, account age, time, recipient
+    4. If BLOCK → record FLAGGED transfer + audit entry, return 403
     5. Atomic balance transfer with SELECT ... FOR UPDATE (race-safe)
     6. Double-entry ledger entries (DEBIT + CREDIT)
     7. Balance snapshots updated
@@ -92,13 +92,20 @@ async def create_transfer(
     transfer_id = str(uuid.uuid4())
 
     # ══════════════════════════════════════════════════════════════
-    # STEP 1: ML FRAUD SCORING — runs BEFORE the DB transaction
+    # STEP 1: FRAUD SCORING — multi-signal rule engine
     # ══════════════════════════════════════════════════════════════
-    fraud_result = predict_fraud(amount=body.amount, time_value=0.0)
+    fraud_result = await score_transaction(
+        db=db,
+        sender_account_id=body.sender_account_id,
+        receiver_account_id=body.receiver_account_id,
+        amount=body.amount,
+    )
     risk_score = fraud_result["risk_score"]
+    rules_triggered = fraud_result["rules_triggered"]
+    rules_json = json.dumps(rules_triggered) if rules_triggered else None
 
     if fraud_result["is_fraud"]:
-        # ── Fraud detected → FLAGGED (no balance change) ──
+        # ── Fraud BLOCKED → FLAGGED (no balance change) ──
         transfer = Transfer(
             id=transfer_id,
             sender_account_id=body.sender_account_id,
@@ -106,6 +113,7 @@ async def create_transfer(
             amount=body.amount,
             status="FLAGGED",
             risk_score=risk_score,
+            fraud_rules_triggered=rules_json,
         )
         db.add(transfer)
         await db.commit()
@@ -116,7 +124,9 @@ async def create_transfer(
             "receiver": body.receiver_account_id,
             "amount": body.amount,
             "risk_score": risk_score,
-            "reason": "Transaction flagged by fraud detection model",
+            "decision": fraud_result["decision"],
+            "rules_triggered": rules_triggered,
+            "rule_details": fraud_result["rule_details"],
         })
 
         await publish_transfer_event({
@@ -126,15 +136,17 @@ async def create_transfer(
             "amount": body.amount,
             "status": "FLAGGED",
             "risk_score": risk_score,
+            "rules_triggered": rules_triggered,
         })
 
         response_content = {
             "detail": "Transaction blocked — flagged by fraud detection",
             "risk_score": risk_score,
             "transfer_id": transfer_id,
+            "rules_triggered": rules_triggered,
+            "decision": fraud_result["decision"],
         }
 
-        # Cache idempotency result
         if idempotency_key:
             await mark_done(db, idempotency_key, 403, response_content)
             await db.commit()
@@ -180,6 +192,7 @@ async def create_transfer(
                 amount=body.amount,
                 status="FAILED",
                 risk_score=risk_score,
+                fraud_rules_triggered=rules_json,
             )
             db.add(transfer)
             await db.commit()
@@ -194,7 +207,6 @@ async def create_transfer(
 
             raise HTTPException(status_code=400, detail="Insufficient balance")
 
-        # Execute transfer atomically
         sender.balance -= body.amount
         receiver.balance += body.amount
 
@@ -205,6 +217,7 @@ async def create_transfer(
             amount=body.amount,
             status="COMPLETED",
             risk_score=risk_score,
+            fraud_rules_triggered=rules_json,
         )
         db.add(transfer)
 
@@ -240,7 +253,6 @@ async def create_transfer(
     # STEP 5: POST-TRANSFER — cache, audit, event, idempotency
     # ══════════════════════════════════════════════════════════════
 
-    # Invalidate Redis cache for both accounts
     await redis_cache.invalidate_balance(body.sender_account_id)
     await redis_cache.invalidate_balance(body.receiver_account_id)
 
@@ -249,6 +261,7 @@ async def create_transfer(
         "receiver": body.receiver_account_id,
         "amount": body.amount,
         "risk_score": risk_score,
+        "rules_triggered": rules_triggered,
     })
 
     await publish_transfer_event({
@@ -258,9 +271,9 @@ async def create_transfer(
         "amount": body.amount,
         "status": "COMPLETED",
         "risk_score": risk_score,
+        "rules_triggered": rules_triggered,
     })
 
-    # Cache idempotency result
     if idempotency_key:
         response_body = {
             "id": transfer.id,
@@ -269,6 +282,7 @@ async def create_transfer(
             "amount": transfer.amount,
             "status": transfer.status,
             "risk_score": transfer.risk_score,
+            "fraud_rules_triggered": transfer.fraud_rules_triggered,
             "created_at": transfer.created_at.isoformat(),
         }
         await mark_done(db, idempotency_key, 201, response_body)

@@ -12,9 +12,6 @@ COPY app/ app/
 COPY alembic/ alembic/
 COPY alembic.ini .
 
-# Copy trained ML model (if available at build time)
-# The model/ dir is also bind-mounted in docker-compose for hot-swap
-COPY model/ model/
 
 EXPOSE 8000
 

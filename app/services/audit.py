@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AuditLog
 
-GENESIS_HASH = "0" * 64  # The hash used when there is no previous entry
+GENESIS_HASH = "0" * 64
 
 
 def _compute_hash(previous_hash: str, transfer_id: str, action: str, details: str, timestamp: str) -> str:
@@ -25,14 +25,13 @@ async def create_audit_entry(
     details_dict: dict,
 ) -> AuditLog:
     """Append a new hash-chained entry to the audit log."""
-    # Get the last entry's hash
     result = await db.execute(
         select(AuditLog).order_by(AuditLog.id.desc()).limit(1)
     )
     last_entry = result.scalar_one_or_none()
     previous_hash = last_entry.current_hash if last_entry else GENESIS_HASH
 
-    details_json = json.dumps(details_dict, sort_keys=True)
+    details_json = json.dumps(details_dict, sort_keys=True, default=str)
     now = datetime.utcnow()
     timestamp_str = now.isoformat()
 
@@ -55,8 +54,14 @@ async def create_audit_entry(
 async def verify_chain(db: AsyncSession) -> dict:
     """Walk the entire audit log and verify every SHA-256 link.
 
-    Returns a dict with keys: intact (bool), message (str),
-    total_entries (int), tamper_position (int | None).
+    Returns:
+        {
+            "intact": bool,
+            "total_entries": int,
+            "entries_checked": int,
+            "first_tampered_at": int | None,
+            "message": str,
+        }
     """
     result = await db.execute(select(AuditLog).order_by(AuditLog.id.asc()))
     entries = result.scalars().all()
@@ -64,23 +69,27 @@ async def verify_chain(db: AsyncSession) -> dict:
     if not entries:
         return {
             "intact": True,
-            "message": "No audit entries yet — chain is trivially intact ✅",
             "total_entries": 0,
-            "tamper_position": None,
+            "entries_checked": 0,
+            "first_tampered_at": None,
+            "message": "No audit entries yet — chain is trivially intact",
         }
 
     expected_prev = GENESIS_HASH
+    checked = 0
+
     for entry in entries:
-        # Check previous_hash linkage
+        checked += 1
+
         if entry.previous_hash != expected_prev:
             return {
                 "intact": False,
-                "message": f"Tamper detected at log #{entry.id} ❌ — previous_hash mismatch",
                 "total_entries": len(entries),
-                "tamper_position": entry.id,
+                "entries_checked": checked,
+                "first_tampered_at": entry.id,
+                "message": f"Tamper detected at entry #{entry.id} — previous_hash linkage broken",
             }
 
-        # Recompute current_hash
         recomputed = _compute_hash(
             entry.previous_hash,
             entry.transfer_id,
@@ -91,16 +100,18 @@ async def verify_chain(db: AsyncSession) -> dict:
         if entry.current_hash != recomputed:
             return {
                 "intact": False,
-                "message": f"Tamper detected at log #{entry.id} ❌ — hash mismatch",
                 "total_entries": len(entries),
-                "tamper_position": entry.id,
+                "entries_checked": checked,
+                "first_tampered_at": entry.id,
+                "message": f"Tamper detected at entry #{entry.id} — content hash mismatch",
             }
 
         expected_prev = entry.current_hash
 
     return {
         "intact": True,
-        "message": f"Chain intact ✅ — all {len(entries)} entries verified",
         "total_entries": len(entries),
-        "tamper_position": None,
+        "entries_checked": checked,
+        "first_tampered_at": None,
+        "message": f"Chain intact — all {len(entries)} entries verified",
     }
