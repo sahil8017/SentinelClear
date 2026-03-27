@@ -1,4 +1,4 @@
-"""Audit router — verify the tamper-evident hash chain."""
+"""Audit router — verify the tamper-evident SHA-256 hash chain."""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,16 @@ async def verify_audit_chain(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Walk the entire audit log and verify every SHA-256 link in the chain."""
+    """Walk the entire audit log and verify every SHA-256 link in the chain.
+
+    Returns a verification report with:
+    - intact: whether the chain is fully valid
+    - total_entries: number of entries in the log
+    - entries_checked: number of entries that were verified
+    - first_tampered_at: ID of first tampered entry (null if intact)
+
+    Demo tip: manually UPDATE an audit_logs row in Postgres,
+    then call this endpoint to watch it catch the tamper.
+    """
     result = await verify_chain(db)
     return AuditVerifyResponse(**result)

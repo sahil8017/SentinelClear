@@ -1,9 +1,9 @@
 """Pydantic request / response schemas for SentinelClear."""
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 # ────────────────────────────── Auth ──────────────────────────────
@@ -78,6 +78,7 @@ class TransferOut(BaseModel):
     amount: float
     status: str
     risk_score: Optional[float] = None
+    fraud_rules_triggered: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -85,10 +86,11 @@ class TransferOut(BaseModel):
 
 
 class FraudBlockedResponse(BaseModel):
-    """Returned when a transfer is blocked by fraud detection."""
     detail: str
     risk_score: float
     transfer_id: str
+    rules_triggered: list[str] = []
+    decision: str  # REVIEW or BLOCK
 
 
 # ────────────────────────────── Audit ──────────────────────────────
@@ -96,9 +98,10 @@ class FraudBlockedResponse(BaseModel):
 
 class AuditVerifyResponse(BaseModel):
     intact: bool
-    message: str
     total_entries: int
-    tamper_position: Optional[int] = None
+    entries_checked: int
+    first_tampered_at: Optional[int] = None
+    message: str
 
 
 # ────────────────────────────── Health ──────────────────────────────
@@ -136,36 +139,103 @@ class LedgerVerifyResponse(BaseModel):
     message: str
 
 
-# ────────────────────────────── Sarvam AI ──────────────────────────────
+# ────────────────────────────── Fraud Dashboard ──────────────────────────────
 
 
-class TranslateRequest(BaseModel):
-    text: str = Field(..., max_length=2000)
-    source_language: str = Field(default="en-IN")
-    target_language: str = Field(..., description="e.g. hi-IN, ta-IN, bn-IN")
+class FraudDashboardResponse(BaseModel):
+    total_transfers: int
+    completed: int
+    flagged: int
+    failed: int
+    flagged_rate: float
+    top_rules_triggered: list[dict]      # [{rule: str, count: int}]
+    recent_flagged: list[TransferOut]
+    risk_distribution: dict              # {low: int, medium: int, high: int, critical: int}
 
 
-class TranslateResponse(BaseModel):
-    original_text: str
-    translated_text: str
-    source_language: str
-    target_language: str
+class FraudRuleConfigOut(BaseModel):
+    rule_name: str
+    weight: float
+    enabled: bool
+    threshold_value: Optional[float] = None
+    description: Optional[str] = None
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
-class InsightsRequest(BaseModel):
-    question: Optional[str] = Field(default=None, description="Optional specific question about spending")
+class FraudRuleConfigUpdate(BaseModel):
+    weight: Optional[float] = Field(None, ge=0.0, le=5.0)
+    enabled: Optional[bool] = None
+    threshold_value: Optional[float] = None
 
 
-class InsightsResponse(BaseModel):
-    insights: str
-    transaction_count: int
-    total_spent: float
+# ────────────────────────────── Notifications ──────────────────────────────
+
+
+class NotificationOut(BaseModel):
+    id: int
+    title: str
+    message: str
+    notification_type: str
+    reference_id: Optional[str] = None
+    is_read: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationMarkRead(BaseModel):
+    notification_ids: list[int]
+
+
+# ────────────────────────────── Analytics ──────────────────────────────
+
+
+class DailyStatOut(BaseModel):
+    account_id: str
+    stat_date: date
+    total_sent: float
     total_received: float
+    transfer_count: int
+    flagged_count: int
+
+    class Config:
+        from_attributes = True
 
 
-class FraudExplainResponse(BaseModel):
-    transfer_id: str
-    risk_score: float
-    explanation: str
-    recommendation: str
+class AnalyticsSummary(BaseModel):
+    account_id: str
+    period_days: int
+    total_sent: float
+    total_received: float
+    net_flow: float
+    total_transfers: int
+    total_flagged: int
+    daily_stats: list[DailyStatOut]
 
+
+# ────────────────────────────── Statement ──────────────────────────────
+
+
+class StatementRequest(BaseModel):
+    days: int = Field(default=30, ge=1, le=365, description="Number of days to include")
+
+
+# ────────────────────────────── Reconciliation ──────────────────────────────
+
+
+class ReconciliationOut(BaseModel):
+    id: int
+    run_at: datetime
+    total_accounts: int
+    accounts_checked: int
+    discrepancies_found: int
+    discrepancy_details: Optional[str] = None
+    status: str
+    duration_ms: Optional[int] = None
+
+    class Config:
+        from_attributes = True

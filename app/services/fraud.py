@@ -1,183 +1,227 @@
-"""
-Fraud detection service — ML-based with rule-based fallback.
-=============================================================
+"""Fraud detection orchestrator — runs all enabled rules, computes composite score.
 
-This module loads a trained sklearn Pipeline (StandardScaler +
-RandomForestClassifier) from model/fraud_model.pkl at FastAPI startup,
-and uses it to score every transfer before it touches the database.
+Replaces the previous zero-padded ML model with a self-contained,
+database-driven rule engine that uses data we actually capture.
 
-If the model file is unavailable (e.g., not yet trained, file missing),
-the service falls back to a simple rule-based check:
-    amount > FRAUD_AMOUNT_THRESHOLD → fraud
-
-IMPORTANT LIMITATION — V1–V28 padding with zeros:
-──────────────────────────────────────────────────
-The model was trained on the ULB Credit Card Fraud Dataset which has
-30 features: [Time, V1, V2, ..., V28, Amount].  V1–V28 are PCA-
-transformed features derived from the original cardholder data.
-
-In our PRODUCTION transactions, we only have Amount and Time — we do
-NOT have V1–V28.  We pad those 28 features with zeros.  This means:
-  • The model is effectively making predictions based on only 2 of 30
-    features (Amount and Time).
-  • Fraud detection quality is significantly lower than the training
-    metrics suggest.
-  • This is acceptable for a college project / prototype.
-  • In production, you would integrate with a payment processor that
-    provides behavioural features, or engineer your own features from
-    transaction history (velocity, geolocation, device fingerprints).
+The orchestrator:
+  1. Loads rule configs from DB (with defaults from Settings)
+  2. Runs each enabled rule in parallel
+  3. Multiplies each rule's score by its configured weight
+  4. Normalises to [0.0, 1.0] composite score
+  5. Returns ALLOW / REVIEW / BLOCK decision
 """
 
 import json
 import logging
-import os
-import time
-from typing import Optional
+from dataclasses import asdict
 
-import numpy as np
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models import FraudRuleConfig
+from app.services.fraud_rules import (
+    RuleResult,
+    check_amount_threshold,
+    check_velocity,
+    check_daily_volume,
+    check_new_account,
+    check_time_of_day,
+    check_recipient_concentration,
+)
 
 logger = logging.getLogger("sentinelclear.fraud")
 
-# ─── Module-level state (set once during startup) ─────────────────
-_pipeline = None          # sklearn Pipeline object
-_threshold: float = 0.5   # decision threshold (overridden from threshold.json)
-_model_available: bool = False
+# Default rule definitions — seeded into fraud_rule_configs table on first run
+DEFAULT_RULES = {
+    "amount_threshold": {
+        "weight": 1.0,
+        "enabled": True,
+        "threshold_value": settings.FRAUD_AMOUNT_THRESHOLD,
+        "description": "Flag single transactions exceeding amount limit",
+    },
+    "velocity": {
+        "weight": 1.5,
+        "enabled": True,
+        "threshold_value": None,
+        "description": "Flag accounts making too many transfers in a short window",
+    },
+    "daily_volume": {
+        "weight": 1.2,
+        "enabled": True,
+        "threshold_value": settings.FRAUD_DAILY_VOLUME_LIMIT,
+        "description": "Flag when daily outflow exceeds limit",
+    },
+    "new_account": {
+        "weight": 1.3,
+        "enabled": True,
+        "threshold_value": settings.FRAUD_NEW_ACCOUNT_AMOUNT,
+        "description": "Flag new accounts making large transfers",
+    },
+    "time_of_day": {
+        "weight": 0.8,
+        "enabled": True,
+        "threshold_value": None,
+        "description": "Flag transfers during unusual hours (1 AM – 5 AM)",
+    },
+    "recipient_concentration": {
+        "weight": 1.0,
+        "enabled": True,
+        "threshold_value": None,
+        "description": "Flag repeated transfers to same recipient",
+    },
+}
 
 
-def load_model() -> None:
-    """Load the trained model and threshold at FastAPI startup.
-
-    Called once from the lifespan context manager in main.py.
-    If loading fails, the module falls back to rule-based scoring.
-    """
-    global _pipeline, _threshold, _model_available
-
-    # Resolve paths — model dir is at project-root/model/
-    # Inside Docker, WORKDIR is /app, so model/ is at /app/model/
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_path = os.path.join(project_root, "model", "fraud_model.pkl")
-    threshold_path = os.path.join(project_root, "model", "threshold.json")
-
-    # ── Load the sklearn pipeline (.pkl) ──
-    try:
-        import joblib
-
-        start = time.time()
-        _pipeline = joblib.load(model_path)
-        load_time = time.time() - start
-
-        logger.info(
-            "✅ ML fraud model loaded from %s in %.2fs",
-            model_path, load_time,
+async def seed_rule_configs(db: AsyncSession) -> None:
+    """Insert default rule configs if they don't exist yet."""
+    for rule_name, defaults in DEFAULT_RULES.items():
+        result = await db.execute(
+            select(FraudRuleConfig).where(FraudRuleConfig.rule_name == rule_name)
         )
-
-        if load_time > 3.0:
-            logger.warning(
-                "⚠️  Model load took %.1fs — exceeds the 3s target", load_time
+        if result.scalar_one_or_none() is None:
+            config = FraudRuleConfig(
+                rule_name=rule_name,
+                weight=defaults["weight"],
+                enabled=defaults["enabled"],
+                threshold_value=defaults["threshold_value"],
+                description=defaults["description"],
             )
-
-    except FileNotFoundError:
-        logger.warning(
-            "⚠️  Model file not found at %s — using rule-based fallback",
-            model_path,
-        )
-        return
-    except Exception as exc:
-        logger.warning(
-            "⚠️  Failed to load model (%s) — using rule-based fallback",
-            exc,
-        )
-        return
-
-    # ── Load the tuned threshold ──
-    try:
-        with open(threshold_path, "r") as f:
-            data = json.load(f)
-            _threshold = float(data["threshold"])
-        logger.info("   Decision threshold: %.4f", _threshold)
-    except Exception as exc:
-        logger.warning(
-            "⚠️  Could not load threshold.json (%s) — using default 0.5",
-            exc,
-        )
-        _threshold = 0.5
-
-    _model_available = True
+            db.add(config)
+    await db.commit()
+    logger.info("Fraud rule configs seeded/verified")
 
 
-def predict_fraud(amount: float, time_value: float = 0.0) -> dict:
-    """Score a transaction for fraud.
+async def _load_rule_configs(db: AsyncSession) -> dict[str, FraudRuleConfig]:
+    """Load all rule configs from DB, keyed by rule_name."""
+    result = await db.execute(select(FraudRuleConfig))
+    configs = result.scalars().all()
+    return {c.rule_name: c for c in configs}
 
-    Args:
-        amount:     Transfer amount in the transaction's currency.
-        time_value: Seconds elapsed since some reference point (e.g.,
-                    first transaction in the dataset).  In production
-                    you'd compute this from your own reference timestamp.
-                    Defaults to 0.0 if not available.
+
+async def score_transaction(
+    db: AsyncSession,
+    sender_account_id: str,
+    receiver_account_id: str,
+    amount: float,
+) -> dict:
+    """Run all enabled fraud rules and return composite decision.
 
     Returns:
         {
-            "is_fraud": bool,     # True if above the decision threshold
-            "risk_score": float,  # Probability of fraud [0.0, 1.0]
+            "decision": "ALLOW" | "REVIEW" | "BLOCK",
+            "risk_score": float,          # [0.0, 1.0]
+            "is_fraud": bool,             # True if BLOCK
+            "rules_triggered": [str],     # names of rules that fired
+            "rule_details": [...]         # full RuleResult for each rule
         }
     """
-    if _model_available and _pipeline is not None:
-        return _predict_with_model(amount, time_value)
+    configs = await _load_rule_configs(db)
+
+    # If no configs loaded (fresh DB), use defaults
+    if not configs:
+        await seed_rule_configs(db)
+        configs = await _load_rule_configs(db)
+
+    rule_results: list[RuleResult] = []
+
+    # ── Run each rule ──────────────────────────────────────────
+
+    cfg = configs.get("amount_threshold")
+    if cfg and cfg.enabled:
+        threshold = cfg.threshold_value or settings.FRAUD_AMOUNT_THRESHOLD
+        result = await check_amount_threshold(amount=amount, threshold=threshold)
+        rule_results.append(result)
+
+    cfg = configs.get("velocity")
+    if cfg and cfg.enabled:
+        result = await check_velocity(
+            db=db,
+            sender_account_id=sender_account_id,
+            max_transfers=settings.FRAUD_VELOCITY_MAX,
+            window_seconds=settings.FRAUD_VELOCITY_WINDOW,
+        )
+        rule_results.append(result)
+
+    cfg = configs.get("daily_volume")
+    if cfg and cfg.enabled:
+        result = await check_daily_volume(
+            db=db,
+            sender_account_id=sender_account_id,
+            amount=amount,
+            daily_limit=cfg.threshold_value or settings.FRAUD_DAILY_VOLUME_LIMIT,
+        )
+        rule_results.append(result)
+
+    cfg = configs.get("new_account")
+    if cfg and cfg.enabled:
+        result = await check_new_account(
+            db=db,
+            sender_account_id=sender_account_id,
+            amount=amount,
+            max_age_hours=settings.FRAUD_NEW_ACCOUNT_HOURS,
+            amount_threshold=cfg.threshold_value or settings.FRAUD_NEW_ACCOUNT_AMOUNT,
+        )
+        rule_results.append(result)
+
+    cfg = configs.get("time_of_day")
+    if cfg and cfg.enabled:
+        result = await check_time_of_day(
+            night_start=settings.FRAUD_NIGHT_START,
+            night_end=settings.FRAUD_NIGHT_END,
+        )
+        rule_results.append(result)
+
+    cfg = configs.get("recipient_concentration")
+    if cfg and cfg.enabled:
+        result = await check_recipient_concentration(
+            db=db,
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
+            max_transfers=settings.FRAUD_RECIPIENT_MAX,
+            window_seconds=settings.FRAUD_RECIPIENT_WINDOW,
+        )
+        rule_results.append(result)
+
+    # ── Compute weighted composite score ───────────────────────
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+    rules_triggered = []
+
+    for rr in rule_results:
+        cfg = configs.get(rr.rule_name)
+        weight = cfg.weight if cfg else 1.0
+        weighted_sum += rr.score * weight
+        total_weight += weight
+        if rr.triggered:
+            rules_triggered.append(rr.rule_name)
+
+    # normalise to [0.0, 1.0]
+    risk_score = round(weighted_sum / total_weight, 6) if total_weight > 0 else 0.0
+    risk_score = min(risk_score, 1.0)
+
+    # ── Decision ──────────────────────────────────────────────
+
+    if risk_score >= settings.FRAUD_BLOCK_THRESHOLD:
+        decision = "BLOCK"
+    elif risk_score >= settings.FRAUD_REVIEW_THRESHOLD:
+        decision = "REVIEW"
     else:
-        return _predict_with_rules(amount)
+        decision = "ALLOW"
 
+    is_fraud = decision == "BLOCK"
 
-def _predict_with_model(amount: float, time_value: float) -> dict:
-    """Run the ML pipeline to get a fraud probability.
-
-    Builds a 30-feature input vector:
-        [Time, V1, V2, ..., V28, Amount]
-    where V1–V28 are all zeros (see module docstring for why).
-    """
-    # Build feature vector: Time + 28 zeros (V1–V28) + Amount
-    features = np.zeros(30)
-    features[0] = time_value     # Time (column 0)
-    features[29] = amount        # Amount (column 29)
-    # features[1:29] remain 0.0  — V1 to V28 not available
-
-    # sklearn expects a 2D array: [[features]]
-    X = features.reshape(1, -1)
-
-    # predict_proba returns [[P(legit), P(fraud)]]
-    fraud_probability = float(_pipeline.predict_proba(X)[0][1])
-
-    # Compare against our TUNED threshold (not the default 0.5)
-    is_fraud = fraud_probability >= _threshold
-
-    if is_fraud:
+    if rules_triggered:
         logger.info(
-            "🚨 ML fraud detected: amount=%.2f risk_score=%.4f threshold=%.4f",
-            amount, fraud_probability, _threshold,
+            "Fraud scored: amount=%.2f score=%.4f decision=%s rules=%s",
+            amount, risk_score, decision, rules_triggered,
         )
 
     return {
-        "is_fraud": is_fraud,
-        "risk_score": round(fraud_probability, 6),
-    }
-
-
-def _predict_with_rules(amount: float) -> dict:
-    """Fallback rule-based fraud scoring.
-
-    Used when the ML model is not available.  Simply checks if the
-    amount exceeds the configured FRAUD_AMOUNT_THRESHOLD (default 50,000).
-    """
-    logger.warning(
-        "Using rule-based fallback for fraud scoring (ML model unavailable)"
-    )
-
-    is_fraud = amount > settings.FRAUD_AMOUNT_THRESHOLD
-    # Map to a pseudo risk_score: 0.0 for safe, 0.95 for flagged
-    risk_score = 0.95 if is_fraud else round(min(amount / settings.FRAUD_AMOUNT_THRESHOLD, 0.49), 6)
-
-    return {
-        "is_fraud": is_fraud,
+        "decision": decision,
         "risk_score": risk_score,
+        "is_fraud": is_fraud,
+        "rules_triggered": rules_triggered,
+        "rule_details": [asdict(rr) for rr in rule_results],
     }

@@ -12,11 +12,15 @@ from app.database import engine, AsyncSessionLocal
 from app.models import Base
 from app.services import rabbitmq as rmq
 from app.services import cache as redis_cache
-from app.services.fraud import load_model as load_fraud_model
-from app.routers import auth, accounts, transfers, audit, ledger, ai
+from app.services.fraud import seed_rule_configs
+from app.services.reconciliation import run_reconciliation
+from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger("sentinelclear")
+
+# APScheduler for background reconciliation
+_scheduler = None
 
 
 # ────────────────────────────── Lifespan ──────────────────────────────
@@ -29,9 +33,10 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("✅ Database tables ensured")
 
-    # Load ML fraud detection model (falls back to rule-based if unavailable)
-    load_fraud_model()
-    logger.info("✅ Fraud detection service ready")
+    # Seed fraud rule configs with defaults
+    async with AsyncSessionLocal() as db:
+        await seed_rule_configs(db)
+    logger.info("✅ Fraud rule engine ready")
 
     # Connect to RabbitMQ
     await rmq.connect()
@@ -41,9 +46,41 @@ async def lifespan(app: FastAPI):
     await redis_cache.connect()
     logger.info("✅ Redis cache ready")
 
+    # Start scheduled reconciliation
+    global _scheduler
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        _scheduler = AsyncIOScheduler()
+
+        async def _scheduled_reconciliation():
+            logger.info("🔄 Running scheduled reconciliation...")
+            try:
+                async with AsyncSessionLocal() as db:
+                    result = await run_reconciliation(db)
+                    logger.info("Reconciliation %s — %d accounts, %d discrepancies",
+                                result["status"], result["accounts_checked"],
+                                result["discrepancies_found"])
+            except Exception as exc:
+                logger.error("Reconciliation failed: %s", exc)
+
+        _scheduler.add_job(
+            _scheduled_reconciliation,
+            "interval",
+            hours=settings.RECONCILIATION_INTERVAL_HOURS,
+            id="reconciliation",
+            name="Balance Reconciliation",
+        )
+        _scheduler.start()
+        logger.info("✅ Reconciliation scheduler started (every %dh)",
+                     settings.RECONCILIATION_INTERVAL_HOURS)
+    except Exception as exc:
+        logger.warning("⚠️  APScheduler not available: %s — reconciliation disabled", exc)
+
     yield  # ← app runs here
 
     # Shutdown
+    if _scheduler:
+        _scheduler.shutdown(wait=False)
     await redis_cache.disconnect()
     await rmq.disconnect()
     await engine.dispose()
@@ -56,10 +93,10 @@ app = FastAPI(
     title="SentinelClear",
     description=(
         "Production-grade banking backend with double-entry ledger, "
-        "idempotent transactions, ML fraud detection, hash-chained audit logs, "
-        "Redis caching, rate limiting, and Sarvam AI integration."
+        "idempotent transactions, rule-based fraud detection, hash-chained audit logs, "
+        "Redis caching, rate limiting, PDF statement generation, and event-driven notifications."
     ),
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -76,7 +113,10 @@ app.include_router(accounts.router)
 app.include_router(transfers.router)
 app.include_router(audit.router)
 app.include_router(ledger.router)
-app.include_router(ai.router)
+app.include_router(fraud.router)
+app.include_router(notifications.router)
+app.include_router(analytics.router)
+app.include_router(statement.router)
 
 
 # ────────────────────────────── Health ──────────────────────────────
@@ -114,3 +154,18 @@ async def health_check():
         "rabbitmq": rmq_status,
         "redis": redis_status,
     }
+
+
+# ────────────────────────────── Reconciliation (Manual Trigger) ──────────────────────────────
+
+@app.post("/admin/reconciliation", tags=["Admin"])
+async def trigger_reconciliation():
+    """Manually trigger a balance reconciliation check.
+
+    Walks all accounts, recomputes balances from ledger entries,
+    and flags any discrepancies. Results are stored in reconciliation_logs.
+    """
+    from app.schemas import ReconciliationOut
+    async with AsyncSessionLocal() as db:
+        result = await run_reconciliation(db)
+    return result
