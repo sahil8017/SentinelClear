@@ -14,9 +14,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create loan_status enum
-    loan_status = sa.Enum("PENDING", "ACTIVE", "CLOSED", "REJECTED", name="loan_status")
-    loan_status.create(op.get_bind(), checkfirst=True)
+    # Create loan_status enum safely
+    from sqlalchemy.dialects import postgresql
+    op.execute("DO $$ BEGIN CREATE TYPE loan_status AS ENUM ('PENDING', 'ACTIVE', 'CLOSED', 'REJECTED'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    loan_status = postgresql.ENUM("PENDING", "ACTIVE", "CLOSED", "REJECTED", name="loan_status", create_type=False)
 
     op.create_table(
         "loans",

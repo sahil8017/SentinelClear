@@ -41,6 +41,11 @@ import time
 import uuid
 import httpx
 
+# Fix Unicode output on Windows
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 BASE_URL = "http://localhost:8000"
 
 passed = 0
@@ -89,7 +94,12 @@ def main():
     # ──────────────────────────────────────────────────────────────
     try:
         r = client.get("/health")
-        data = r.json()
+        try:
+            data = r.json()
+        except Exception as e:
+            print(f"  ❌ JSON Error at /health: {e}\nResponse: {r.text[:500]}")
+            sys.exit(1)
+            
         test("GET /health returns 200", r.status_code == 200)
         test("Database is healthy", data.get("database") == "healthy")
         test("RabbitMQ is healthy", data.get("rabbitmq") == "healthy")
@@ -107,7 +117,12 @@ def main():
 
     r = client.get("/openapi.json")
     test("GET /openapi.json returns 200", r.status_code == 200)
-    test("OpenAPI has paths defined", len(r.json().get("paths", {})) > 0)
+    try:
+        data = r.json()
+        test("OpenAPI has paths defined", len(data.get("paths", {})) > 0)
+    except Exception as e:
+        print(f"  ❌ JSON Error at /openapi.json: {e}\nResponse: {r.text[:500]}")
+        sys.exit(1)
 
     # ──────────────────────────────────────────────────────────────
     print("\n📌 3. PROMETHEUS METRICS")
