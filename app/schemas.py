@@ -1,9 +1,9 @@
 """Pydantic request / response schemas for SentinelClear."""
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 # ────────────────────────────── Auth ──────────────────────────────
@@ -29,6 +29,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     email: str
+    role: str = "USER"
     created_at: datetime
 
     class Config:
@@ -58,6 +59,12 @@ class BalanceOut(BaseModel):
     balance: float
 
 
+class DirectoryOut(BaseModel):
+    username: str
+    account_id: str
+    account_type: str
+
+
 class DepositRequest(BaseModel):
     amount: float = Field(..., gt=0)
 
@@ -66,9 +73,12 @@ class DepositRequest(BaseModel):
 
 
 class TransferRequest(BaseModel):
-    sender_account_id: str
+    sender_account_id: Optional[str] = None
     receiver_account_id: str
     amount: float = Field(..., gt=0)
+    currency: Optional[str] = "INR"
+    reference: Optional[str] = None
+    route: Optional[str] = Field(default="IMPS", description="Routing method: IMPS, NEFT, or RTGS")
 
 
 class TransferOut(BaseModel):
@@ -78,11 +88,18 @@ class TransferOut(BaseModel):
     amount: float
     status: str
     risk_score: Optional[float] = None
+    ml_risk_score: Optional[float] = None
     fraud_rules_triggered: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+    @field_serializer("created_at")
+    def serialize_dt(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
 
 
 class FraudBlockedResponse(BaseModel):
@@ -239,3 +256,67 @@ class ReconciliationOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ────────────────────────────── Developer Platform (BaaS) ──────────────────────────────
+
+
+class ApiKeyOut(BaseModel):
+    prefix: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ApiKeyResponse(BaseModel):
+    raw_key: str
+    prefix: str
+
+
+class WebhookCreate(BaseModel):
+    target_url: str = Field(..., max_length=500)
+
+
+class WebhookOut(BaseModel):
+    id: int
+    target_url: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ────────────────────────────── Credit & Lending ──────────────────────────────
+
+
+class LoanCreate(BaseModel):
+    principal_amount: float = Field(..., gt=0)
+    duration_months: int = Field(default=12, gt=0)
+
+
+class LoanOut(BaseModel):
+    id: str
+    user_id: int
+    principal_amount: float
+    outstanding_balance: float
+    interest_rate: float
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LoanRepaymentOut(BaseModel):
+    id: int
+    loan_id: str
+    amount: float
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LoanRepaymentRequest(BaseModel):
+    amount: float = Field(..., gt=0)

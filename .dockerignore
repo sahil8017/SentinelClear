@@ -1,0 +1,43 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.vite/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Docker
+docker-compose.yml
+docker-compose.*.yml
+
+# Monitoring (mounted as volumes, not baked in)
+monitoring/
+
+# Nginx (separate build context)
+nginx/
+
+# Docs and misc
+*.md
+LICENSE
+.agents/

@@ -35,3 +35,11 @@ model/*.pkl
 # Agents / Auto-generated
 .agents/
 .gemini/
+
+# Sensitive files
+service-account.json
+*.json.key
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/

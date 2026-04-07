@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONPATH=/app
@@ -12,6 +12,8 @@ COPY app/ app/
 COPY alembic/ alembic/
 COPY alembic.ini .
 
+# ML model artifacts are bundled with app/ml/
+# Ensure fraud_model.pkl and scaler.pkl are present after training
 
 EXPOSE 8000
 

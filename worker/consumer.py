@@ -11,6 +11,7 @@ import json
 import logging
 import sys
 import os
+import httpx
 from datetime import datetime, date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +28,8 @@ logging.basicConfig(
     format="%(asctime)s [WORKER] %(levelname)s %(message)s",
 )
 logger = logging.getLogger("worker")
+
+http_client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0, read=10.0))
 
 EXCHANGE_NAME = "sentinelclear_events"
 QUEUE_NAME = "transfer_events"
@@ -169,6 +172,19 @@ async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None
     """Process a single transfer event — create notifications + update analytics."""
     try:
         body = json.loads(message.body.decode())
+        
+        # Broadcast fraud alert over websocket
+        if body.get("status") == "FLAGGED":
+            try:
+                # We use httpx inside the worker to hit the main API gateway
+                await http_client.post(
+                    "http://api-gateway:8000/internal/broadcast-fraud",
+                    headers={"X-Admin-Token": settings.ADMIN_SECRET_KEY},
+                    json=body,
+                )
+            except Exception as broad_exc:
+                logger.error(f"Failed to broadcast fraud alert: {broad_exc}")
+                
         logger.info(
             "Processing event: id=%s amount=%.2f status=%s",
             body.get("transfer_id"),
@@ -260,6 +276,7 @@ async def main() -> None:
         await asyncio.Future()
     finally:
         await connection.close()
+        await http_client.aclose()
 
 
 if __name__ == "__main__":

@@ -12,16 +12,18 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_user_or_api_key
 from app.models import Account, BalanceSnapshot, Transfer, User
 from app.schemas import TransferOut, TransferRequest, FraudBlockedResponse
-from app.services.fraud import score_transaction
+from app.services.fraud_service import evaluate_transfer_risk
 from app.services.audit import create_audit_entry
 from app.services.rabbitmq import publish_transfer_event
 from app.services.ledger import create_double_entry
 from app.services.idempotency import check_or_create_key, mark_done
 from app.services import cache as redis_cache
 from app.services.rate_limit import transfer_limiter
+from app.services.webhook_service import dispatch_webhook
+from app.config import settings
 
 router = APIRouter(prefix="/transfers", tags=["Transfers"])
 
@@ -51,7 +53,7 @@ async def _upsert_snapshot(db: AsyncSession, account_id: str, balance: float) ->
 async def create_transfer(
     body: TransferRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_user_or_api_key),
     db: AsyncSession = Depends(get_db),
     _rate: None = Depends(transfer_limiter),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
@@ -71,8 +73,27 @@ async def create_transfer(
     """
 
     # ══════════════════════════════════════════════════════════════
-    # STEP 0: IDEMPOTENCY CHECK
+    # STEP 0: SENDER RESOLUTION & IDEMPOTENCY
     # ══════════════════════════════════════════════════════════════
+    # Always resolve sender account for balance access by fraud engine
+    if not body.sender_account_id:
+        result = await db.execute(
+            select(Account)
+            .where(Account.owner_id == user.id)
+            .order_by(Account.created_at.asc())
+        )
+        sender_acct = result.scalars().first()
+        if not sender_acct:
+             raise HTTPException(status_code=404, detail="No source account found for user")
+        body.sender_account_id = sender_acct.id
+    else:
+        result = await db.execute(
+            select(Account).where(Account.id == body.sender_account_id)
+        )
+        sender_acct = result.scalar_one_or_none()
+        if not sender_acct:
+            raise HTTPException(status_code=404, detail="Sender account not found")
+
     if idempotency_key:
         idem_result = await check_or_create_key(db, idempotency_key, user.id)
         if idem_result["action"] == "replay":
@@ -92,19 +113,34 @@ async def create_transfer(
     transfer_id = str(uuid.uuid4())
 
     # ══════════════════════════════════════════════════════════════
-    # STEP 1: FRAUD SCORING — multi-signal rule engine
+    # STEP 1: RBI/NPCI FRAUD SCORING — Multi-Layered Risk Engine
     # ══════════════════════════════════════════════════════════════
-    fraud_result = await score_transaction(
+    fraud_result = await evaluate_transfer_risk(
         db=db,
+        user=user,
         sender_account_id=body.sender_account_id,
         receiver_account_id=body.receiver_account_id,
         amount=body.amount,
+        route=body.route,
+        sender_balance=sender_acct.balance
     )
+    
+    # ── LAYER 1: Hard Regulatory Blocks (Direct 403, No DB footprint to save IOps) ──
+    if fraud_result["is_blocked"]:
+        if idempotency_key:
+            await mark_done(db, idempotency_key, 403, {"detail": fraud_result["block_reason"]})
+            await db.commit()
+        raise HTTPException(status_code=403, detail=fraud_result["block_reason"])
+
     risk_score = fraud_result["risk_score"]
+    ml_risk_score = fraud_result.get("ml_risk_score", 0.0)
     rules_triggered = fraud_result["rules_triggered"]
     rules_json = json.dumps(rules_triggered) if rules_triggered else None
 
-    if fraud_result["is_fraud"]:
+    # ── LAYER 2: Predictive Risk Quarantine (FLAGGED footprint) ──
+    is_fraud_quarantine = risk_score >= settings.FRAUD_BLOCK_THRESHOLD
+
+    if is_fraud_quarantine:
         # ── Fraud BLOCKED → FLAGGED (no balance change) ──
         transfer = Transfer(
             id=transfer_id,
@@ -113,6 +149,7 @@ async def create_transfer(
             amount=body.amount,
             status="FLAGGED",
             risk_score=risk_score,
+            ml_risk_score=ml_risk_score,
             fraud_rules_triggered=rules_json,
         )
         db.add(transfer)
@@ -124,9 +161,9 @@ async def create_transfer(
             "receiver": body.receiver_account_id,
             "amount": body.amount,
             "risk_score": risk_score,
-            "decision": fraud_result["decision"],
+            "decision": "BLOCK",
             "rules_triggered": rules_triggered,
-            "rule_details": fraud_result["rule_details"],
+            "rule_details": [],
         })
 
         await publish_transfer_event({
@@ -140,11 +177,11 @@ async def create_transfer(
         })
 
         response_content = {
-            "detail": "Transaction blocked — flagged by fraud detection",
+            "detail": "Transaction quarantined by Predictive Risk Engine",
             "risk_score": risk_score,
             "transfer_id": transfer_id,
             "rules_triggered": rules_triggered,
-            "decision": fraud_result["decision"],
+            "decision": "BLOCK",
         }
 
         if idempotency_key:
@@ -192,6 +229,7 @@ async def create_transfer(
                 amount=body.amount,
                 status="FAILED",
                 risk_score=risk_score,
+                ml_risk_score=ml_risk_score,
                 fraud_rules_triggered=rules_json,
             )
             db.add(transfer)
@@ -217,6 +255,7 @@ async def create_transfer(
             amount=body.amount,
             status="COMPLETED",
             risk_score=risk_score,
+            ml_risk_score=ml_risk_score,
             fraud_rules_triggered=rules_json,
         )
         db.add(transfer)
@@ -274,6 +313,18 @@ async def create_transfer(
         "rules_triggered": rules_triggered,
     })
 
+    # Dispatch webhooks asynchronously
+    webhook_payload = {
+        "event": "transfer.completed",
+        "transfer_id": transfer_id,
+        "sender_account_id": body.sender_account_id,
+        "receiver_account_id": body.receiver_account_id,
+        "amount": body.amount,
+        "status": "COMPLETED",
+        "created_at": transfer.created_at.isoformat() if transfer.created_at else datetime.utcnow().isoformat()
+    }
+    await dispatch_webhook(user.id, webhook_payload)
+
     if idempotency_key:
         response_body = {
             "id": transfer.id,
@@ -294,7 +345,7 @@ async def create_transfer(
 @router.get("/{transfer_id}", response_model=TransferOut)
 async def get_transfer(
     transfer_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_user_or_api_key),
     db: AsyncSession = Depends(get_db),
 ):
     """Get details of a single transfer the user is party to."""
@@ -317,7 +368,8 @@ async def get_transfer(
 
 @router.get("/history/all", response_model=list[TransferOut])
 async def get_transfer_history(
-    user: User = Depends(get_current_user),
+    limit: int = 50,
+    user: User = Depends(get_user_or_api_key),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all transfers where the user is sender or receiver."""
@@ -336,5 +388,6 @@ async def get_transfer_history(
             )
         )
         .order_by(Transfer.created_at.desc())
+        .limit(limit)
     )
     return result.scalars().all()

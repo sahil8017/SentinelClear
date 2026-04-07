@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import require_admin
 from app.models import FraudRuleConfig, Transfer, User
 from app.schemas import (
     FraudDashboardResponse,
@@ -20,9 +20,89 @@ from app.schemas import (
 router = APIRouter(prefix="/fraud", tags=["Fraud Detection"])
 
 
+@router.get("/metrics")
+async def fraud_metrics(
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lightweight metrics endpoint for polling — returns counts and avg score."""
+    total_result = await db.execute(select(func.count(Transfer.id)))
+    total = total_result.scalar() or 0
+
+    flagged_result = await db.execute(
+        select(func.count(Transfer.id)).where(Transfer.status == "FLAGGED")
+    )
+    flagged = flagged_result.scalar() or 0
+
+    avg_score_result = await db.execute(
+        select(func.avg(Transfer.risk_score)).where(Transfer.risk_score.isnot(None))
+    )
+    avg_score = float(avg_score_result.scalar() or 0.0)
+
+    avg_ml_result = await db.execute(
+        select(func.avg(Transfer.ml_risk_score)).where(Transfer.ml_risk_score.isnot(None))
+    )
+    avg_ml_score = float(avg_ml_result.scalar() or 0.0)
+
+    return {
+        "total": total,
+        "flagged_count": flagged,
+        "avg_score": round(avg_score, 6),
+        "avg_ml_score": round(avg_ml_score, 6),
+        "flagged_rate": round(flagged / total, 4) if total > 0 else 0.0,
+    }
+
+
+@router.get("/metrics/timeline")
+async def fraud_metrics_timeline(
+    limit: int = 60,
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return timestamped risk scores for the last N transfers (for live chart).
+
+    Returns a JSON array like:
+      [{"time": "18:01:34", "risk": 0.12, "amount": 50000, "status": "COMPLETED"}, ...]
+    """
+    from datetime import datetime as dt
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+
+    result = await db.execute(
+        select(
+            Transfer.created_at,
+            Transfer.risk_score,
+            Transfer.ml_risk_score,
+            Transfer.amount,
+            Transfer.status,
+        )
+        .where(Transfer.risk_score.isnot(None))
+        .order_by(Transfer.created_at.desc())
+        .limit(limit)
+    )
+    rows = result.fetchall()
+
+    timeline = []
+    for row in reversed(rows):
+        created_utc = row[0]
+        if created_utc.tzinfo is None:
+            from datetime import timezone
+            created_utc = created_utc.replace(tzinfo=timezone.utc)
+        created_ist = created_utc.astimezone(IST)
+        timeline.append({
+            "time": created_ist.strftime("%H:%M:%S"),
+            "risk": round(float(row[1] or 0), 4),
+            "ml_risk": round(float(row[2] or 0), 4),
+            "amount": float(row[3] or 0),
+            "status": row[4],
+        })
+
+    return timeline
+
+
 @router.get("/dashboard", response_model=FraudDashboardResponse)
 async def fraud_dashboard(
-    user: User = Depends(get_current_user),
+    _: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Real-time fraud detection statistics and analytics.
@@ -112,7 +192,7 @@ async def fraud_dashboard(
 
 @router.get("/rules", response_model=list[FraudRuleConfigOut])
 async def list_fraud_rules(
-    user: User = Depends(get_current_user),
+    _: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """List all fraud detection rules with their current weights and status."""
@@ -126,7 +206,7 @@ async def list_fraud_rules(
 async def update_fraud_rule(
     rule_name: str,
     body: FraudRuleConfigUpdate,
-    user: User = Depends(get_current_user),
+    _: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a fraud rule's weight, enabled status, or threshold.

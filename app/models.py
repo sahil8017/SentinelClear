@@ -33,9 +33,32 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(120), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
+    role = Column(String(20), default="USER", nullable=False)
+    kyc_status = Column(String(20), default="UNVERIFIED", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     accounts = relationship("Account", back_populates="owner", lazy="selectin")
+    beneficiaries = relationship("Beneficiary", back_populates="user", lazy="selectin")
+
+
+# ────────────────────────────── Beneficiary ──────────────────────────────
+
+
+class Beneficiary(Base):
+    __tablename__ = "beneficiaries"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    recipient_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False, index=True)
+    status = Column(String(20), default="ACTIVE", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="beneficiaries")
+    recipient_account = relationship("Account", foreign_keys=[recipient_account_id])
+
+    __table_args__ = (
+        Index("ix_beneficiaries_user_recipient", "user_id", "recipient_account_id", unique=True),
+    )
 
 
 # ────────────────────────────── Account ──────────────────────────────
@@ -69,6 +92,7 @@ class Transfer(Base):
         nullable=False,
     )
     risk_score = Column(Float, nullable=True, default=None)
+    ml_risk_score = Column(Float, nullable=True, default=None)  # Raw ML model P(fraud)
     fraud_rules_triggered = Column(Text, nullable=True)  # JSON list of triggered rule names
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -239,3 +263,66 @@ class ReconciliationLog(Base):
     __table_args__ = (
         Index("ix_reconciliation_run", "run_at"),
     )
+
+
+# ────────────────────────────── Developer Platform (BaaS) ──────────────────────────────
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    hashed_key = Column(String(255), nullable=False)
+    prefix = Column(String(10), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class WebhookEndpoint(Base):
+    __tablename__ = "webhook_endpoints"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    target_url = Column(String(500), nullable=False)
+    secret = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+# ────────────────────────────── Credit & Lending ──────────────────────────────
+
+
+class Loan(Base):
+    __tablename__ = "loans"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True, index=True)
+    principal_amount = Column(Float, nullable=False)
+    outstanding_balance = Column(Float, nullable=False)
+    interest_rate = Column(Float, nullable=False)
+    duration_months = Column(Integer, nullable=False, default=12)
+    status = Column(
+        SAEnum("PENDING", "ACTIVE", "CLOSED", "REJECTED", name="loan_status"),
+        default="PENDING",
+        nullable=False,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+    account = relationship("Account", foreign_keys=[account_id])
+
+
+class LoanRepayment(Base):
+    __tablename__ = "loan_repayments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    loan_id = Column(String(36), ForeignKey("loans.id"), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    loan = relationship("Loan", foreign_keys=[loan_id])
+

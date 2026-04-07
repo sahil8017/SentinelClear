@@ -15,6 +15,7 @@ Rule design principles:
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,9 +55,9 @@ async def check_amount_threshold(
             reason=f"Amount ₹{amount:,.2f} within threshold ₹{threshold:,.2f}",
         )
 
-    # Scale: threshold → 0.5, 2×threshold → 1.0
+    # Scale: threshold → 0.9, 2×threshold → 1.0 (Aggressive for exceeding limit)
     overshoot = min(amount / threshold, 2.0)
-    score = round(0.5 + (overshoot - 1.0) * 0.5, 4)
+    score = round(0.9 + (overshoot - 1.0) * 0.1, 4)
 
     return RuleResult(
         rule_name="amount_threshold",
@@ -100,15 +101,56 @@ async def check_velocity(
             reason=f"{count}/{max_transfers} transfers in {window_seconds}s window",
         )
 
-    # Score scales with how far over the limit
+    # Score scales with how far over the limit, starting at 0.85
     overshoot = min(count / max_transfers, 3.0)
-    score = round(0.5 + (overshoot - 1.0) * 0.25, 4)
+    score = round(0.85 + (overshoot - 1.0) * 0.075, 4)
 
     return RuleResult(
         rule_name="velocity",
         triggered=True,
         score=min(score, 1.0),
         reason=f"{count} transfers in {window_seconds}s exceeds limit of {max_transfers}",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RULE 2.1: Burst Velocity — rapid fire transfers in < 60s
+# ═══════════════════════════════════════════════════════════════════
+
+async def check_burst_velocity(
+    db: AsyncSession,
+    sender_account_id: str,
+    max_burst: int = 3,
+    **kwargs,
+) -> RuleResult:
+    """Flag accounts making 3+ transfers in 60 seconds."""
+    cutoff = datetime.utcnow() - timedelta(seconds=60)
+
+    result = await db.execute(
+        select(func.count(Transfer.id))
+        .where(
+            and_(
+                Transfer.sender_account_id == sender_account_id,
+                Transfer.created_at >= cutoff,
+                Transfer.status.in_(["COMPLETED", "FLAGGED"]),
+            )
+        )
+    )
+    count = result.scalar() or 0
+
+    if count < max_burst:
+        return RuleResult(
+            rule_name="burst_velocity",
+            triggered=False,
+            score=0.1 if count > 1 else 0.0,
+            reason=f"{count}/{max_burst} transfers in 60s",
+        )
+
+    return RuleResult(
+        rule_name="burst_velocity",
+        triggered=True,
+        score=0.95,  # Extreme risk for instant bursts
+        reason=f"DETECTED BURST: {count} transfers in 60s (threshold: {max_burst})",
     )
 
 
@@ -146,8 +188,9 @@ async def check_daily_volume(
             reason=f"Daily volume ₹{today_total:,.2f} within limit ₹{daily_limit:,.2f}",
         )
 
+    # Strict scoring for daily volume limit breach (0.95+)
     overshoot = min(today_total / daily_limit, 2.0)
-    score = round(0.5 + (overshoot - 1.0) * 0.5, 4)
+    score = round(0.95 + (overshoot - 1.0) * 0.05, 4)
 
     return RuleResult(
         rule_name="daily_volume",
@@ -194,10 +237,10 @@ async def check_new_account(
             reason=f"Account age {age_hours:.1f}h, amount ₹{amount:,.2f}",
         )
 
-    # Newer account + higher amount = higher score
+    # Newer account + higher amount = higher score (starting at 0.8)
     age_factor = 1.0 - (age_hours / max_age_hours)
     amount_factor = min(amount / amount_threshold, 2.0) / 2.0
-    score = round(0.5 + (age_factor * amount_factor * 0.5), 4)
+    score = round(0.8 + (age_factor * amount_factor * 0.2), 4)
 
     return RuleResult(
         rule_name="new_account",
@@ -217,7 +260,7 @@ async def check_time_of_day(
     **kwargs,
 ) -> RuleResult:
     """Flag transfers made during unusual hours (default: 1 AM – 5 AM)."""
-    current_hour = datetime.utcnow().hour
+    current_hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
 
     if not (night_start <= current_hour < night_end):
         return RuleResult(
@@ -230,7 +273,7 @@ async def check_time_of_day(
     return RuleResult(
         rule_name="time_of_day",
         triggered=True,
-        score=0.6,
+        score=0.75,
         reason=f"Transfer at {current_hour}:00 — unusual hours ({night_start}:00–{night_end}:00)",
     )
 
@@ -271,8 +314,9 @@ async def check_recipient_concentration(
             reason=f"{count}/{max_transfers} transfers to same recipient in {window_seconds}s",
         )
 
+    # Starting at 0.8 on trigger
     overshoot = min(count / max_transfers, 3.0)
-    score = round(0.5 + (overshoot - 1.0) * 0.25, 4)
+    score = round(0.8 + (overshoot - 1.0) * 0.1, 4)
 
     return RuleResult(
         rule_name="recipient_concentration",

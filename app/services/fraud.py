@@ -1,17 +1,16 @@
-"""Fraud detection orchestrator — runs all enabled rules, computes composite score.
+"""Fraud detection orchestrator — hybrid rule engine + ML model scoring.
 
-Replaces the previous zero-padded ML model with a self-contained,
-database-driven rule engine that uses data we actually capture.
+Combines a database-driven rule engine (Layer 1) with a trained
+RandomForestClassifier (Layer 2) to produce a composite risk score.
 
-The orchestrator:
-  1. Loads rule configs from DB (with defaults from Settings)
-  2. Runs each enabled rule in parallel
-  3. Multiplies each rule's score by its configured weight
-  4. Normalises to [0.0, 1.0] composite score
-  5. Returns ALLOW / REVIEW / BLOCK decision
+Pipeline:
+  1. Load rule configs from DB (with defaults from Settings)
+  2. Run each enabled rule in parallel → weighted rule score
+  3. Run ML inference → P(fraud) probability
+  4. Compute composite: max(rule_score, ml_score * ops_multiplier)
+  5. Return ALLOW / REVIEW / BLOCK decision
 """
 
-import json
 import logging
 from dataclasses import asdict
 
@@ -19,16 +18,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import FraudRuleConfig
+from app.models import FraudRuleConfig, Account
 from app.services.fraud_rules import (
     RuleResult,
     check_amount_threshold,
     check_velocity,
+    check_burst_velocity,
     check_daily_volume,
     check_new_account,
     check_time_of_day,
     check_recipient_concentration,
 )
+from app.services.ml_service import predict_risk_score, is_model_loaded
 
 logger = logging.getLogger("sentinelclear.fraud")
 
@@ -45,6 +46,12 @@ DEFAULT_RULES = {
         "enabled": True,
         "threshold_value": None,
         "description": "Flag accounts making too many transfers in a short window",
+    },
+    "burst_velocity": {
+        "weight": 2.0,
+        "enabled": True,
+        "threshold_value": 3,
+        "description": "Flag accounts making 3+ transfers in 60 seconds",
     },
     "daily_volume": {
         "weight": 1.2,
@@ -99,18 +106,37 @@ async def _load_rule_configs(db: AsyncSession) -> dict[str, FraudRuleConfig]:
     return {c.rule_name: c for c in configs}
 
 
+async def _compute_ml_features(
+    db: AsyncSession,
+    sender_account_id: str,
+    receiver_account_id: str,
+    amount: float,
+) -> dict:
+    """Extract features required by the ML model from current transaction context."""
+    sender_account = await db.scalar(select(Account).where(Account.id == sender_account_id))
+    receiver_account = await db.scalar(select(Account).where(Account.id == receiver_account_id))
+    
+    return {
+        "amount": amount,
+        "oldbalanceOrg": float(sender_account.balance) if sender_account else 0.0,
+        "oldbalanceDest": float(receiver_account.balance) if receiver_account else 0.0,
+        "is_transfer": True, # Assume everything routed through fraud engine is transferring funds currently
+    }
+
+
 async def score_transaction(
     db: AsyncSession,
     sender_account_id: str,
     receiver_account_id: str,
     amount: float,
 ) -> dict:
-    """Run all enabled fraud rules and return composite decision.
+    """Run all enabled fraud rules + ML model and return composite decision.
 
     Returns:
         {
             "decision": "ALLOW" | "REVIEW" | "BLOCK",
-            "risk_score": float,          # [0.0, 1.0]
+            "risk_score": float,          # [0.0, 1.0] — composite
+            "ml_risk_score": float,       # [0.0, 1.0] — raw ML P(fraud)
             "is_fraud": bool,             # True if BLOCK
             "rules_triggered": [str],     # names of rules that fired
             "rule_details": [...]         # full RuleResult for each rule
@@ -140,6 +166,15 @@ async def score_transaction(
             sender_account_id=sender_account_id,
             max_transfers=settings.FRAUD_VELOCITY_MAX,
             window_seconds=settings.FRAUD_VELOCITY_WINDOW,
+        )
+        rule_results.append(result)
+
+    cfg = configs.get("burst_velocity")
+    if cfg and cfg.enabled:
+        result = await check_burst_velocity(
+            db=db,
+            sender_account_id=sender_account_id,
+            max_burst=int(cfg.threshold_value or 3),
         )
         rule_results.append(result)
 
@@ -183,23 +218,57 @@ async def score_transaction(
         )
         rule_results.append(result)
 
-    # ── Compute weighted composite score ───────────────────────
+    # ── Compute weighted rule-engine score ─────────────────────
 
-    weighted_sum = 0.0
-    total_weight = 0.0
-    rules_triggered = []
+    rules_triggered = [rr.rule_name for rr in rule_results if rr.triggered]
+    if rules_triggered:
+        # Aggressive: Use the highest single risk score
+        rule_score = max(rr.score for rr in rule_results if rr.triggered)
+    else:
+        # Non-Triggered Aggregation (Fuzzy OR)
+        # Prevents risk dilution via averaging
+        risk_product = 1.0
+        for rr in rule_results:
+            risk_product *= (1.0 - rr.score)
+        rule_score = 1.0 - risk_product
 
-    for rr in rule_results:
-        cfg = configs.get(rr.rule_name)
-        weight = cfg.weight if cfg else 1.0
-        weighted_sum += rr.score * weight
-        total_weight += weight
-        if rr.triggered:
-            rules_triggered.append(rr.rule_name)
+    rule_score = round(min(rule_score, 1.0), 4)
 
-    # normalise to [0.0, 1.0]
-    risk_score = round(weighted_sum / total_weight, 6) if total_weight > 0 else 0.0
-    risk_score = min(risk_score, 1.0)
+    # ══════════════════════════════════════════════════════════════
+    # LAYER 2: ML MODEL INFERENCE
+    # ══════════════════════════════════════════════════════════════
+
+    ml_risk_score = 0.0
+
+    if is_model_loaded():
+        ml_features = await _compute_ml_features(
+            db, sender_account_id, receiver_account_id, amount
+        )
+        ml_risk_score = predict_risk_score(**ml_features)
+
+        # Compute ops_multiplier: average weight of all enabled rules
+        # This lets admin slider positions influence the ML threshold
+        enabled_weights = [
+            c.weight for c in configs.values() if c.enabled
+        ]
+        ops_multiplier = (
+            sum(enabled_weights) / len(enabled_weights)
+            if enabled_weights
+            else 1.0
+        )
+
+        ml_adjusted = ml_risk_score * ops_multiplier
+
+        # Hybrid composite: take the more severe signal
+        risk_score = round(min(max(rule_score, ml_adjusted), 1.0), 4)
+
+        logger.info(
+            "Hybrid scoring: rule=%.4f  ml_raw=%.4f  ops_mult=%.2f  ml_adj=%.4f  composite=%.4f",
+            rule_score, ml_risk_score, ops_multiplier, ml_adjusted, risk_score,
+        )
+    else:
+        # Fallback: rule-engine only
+        risk_score = rule_score
 
     # ── Decision ──────────────────────────────────────────────
 
@@ -212,15 +281,16 @@ async def score_transaction(
 
     is_fraud = decision == "BLOCK"
 
-    if rules_triggered:
+    if rules_triggered or ml_risk_score > 0.3:
         logger.info(
-            "Fraud scored: amount=%.2f score=%.4f decision=%s rules=%s",
-            amount, risk_score, decision, rules_triggered,
+            "Fraud scored: amount=%.2f composite=%.4f ml=%.4f decision=%s rules=%s",
+            amount, risk_score, ml_risk_score, decision, rules_triggered,
         )
 
     return {
         "decision": decision,
         "risk_score": risk_score,
+        "ml_risk_score": round(ml_risk_score, 6),
         "is_fraud": is_fraud,
         "rules_triggered": rules_triggered,
         "rule_details": [asdict(rr) for rr in rule_results],

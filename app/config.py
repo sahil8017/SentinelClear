@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # ── Reconciliation ──
     RECONCILIATION_INTERVAL_HOURS: int = 24
 
+    # ── Runtime toggles & security ──
+    ENABLE_CHAOS_ENDPOINTS: bool = True
+    ADMIN_SECRET_KEY: str = "change-me-in-production"
+    ALLOWED_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
+
     class Config:
         env_file = ".env"
         extra = "ignore"

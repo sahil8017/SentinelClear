@@ -54,6 +54,13 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
+    volumes:
+      - ./service-account.json:/app/service-account.json:ro
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
+      - DATABASE_URL=postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -72,6 +79,10 @@ services:
       dockerfile: worker/Dockerfile
     container_name: async-worker
     env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -104,6 +115,23 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
+
+  # ─────────────────── Nginx ───────────────────
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      api-gateway:
+        condition: service_started
+      grafana:
+        condition: service_started
+    restart: on-failure
 
 volumes:
   pgdata:

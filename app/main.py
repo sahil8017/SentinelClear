@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import text
 
@@ -14,7 +15,7 @@ from app.services import rabbitmq as rmq
 from app.services import cache as redis_cache
 from app.services.fraud import seed_rule_configs
 from app.services.reconciliation import run_reconciliation
-from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement
+from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement, websocket, chaos, loans
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger("sentinelclear")
@@ -28,15 +29,22 @@ _scheduler = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown hooks."""
-    # Create tables if they don't exist (fallback — Alembic is the primary path)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("✅ Database tables ensured")
+    # Migrations are handled exclusively by Alembic in the docker/system entrypoint.
+    # Base.metadata.create_all is removed to prevent collisions with existing types.
+    logger.info("✅ Persistence layer active")
 
     # Seed fraud rule configs with defaults
     async with AsyncSessionLocal() as db:
         await seed_rule_configs(db)
     logger.info("✅ Fraud rule engine ready")
+
+    # Load ML fraud model into memory
+    from app.services.ml_service import load_model as load_ml_model
+    ml_loaded = load_ml_model()
+    if ml_loaded:
+        logger.info("✅ ML Fraud Model loaded — hybrid scoring active")
+    else:
+        logger.warning("⚠️  ML model not found — running rule-engine-only mode")
 
     # Connect to RabbitMQ
     await rmq.connect()
@@ -100,6 +108,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def _normalize_origins(origins):
+    if isinstance(origins, str):
+        return [origin.strip() for origin in origins.split(",") if origin.strip()]
+    return origins
+
+# ── CORS ──
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_normalize_origins(settings.ALLOWED_ORIGINS),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ── Prometheus instrumentation ──
 Instrumentator(
     should_group_status_codes=True,
@@ -117,6 +140,13 @@ app.include_router(fraud.router)
 app.include_router(notifications.router)
 app.include_router(analytics.router)
 app.include_router(statement.router)
+app.include_router(websocket.router)
+app.include_router(loans.router)
+
+if settings.ENABLE_CHAOS_ENDPOINTS:
+    app.include_router(chaos.router)
+else:
+    logger.info("Chaos endpoints disabled in this deployment")
 
 
 # ────────────────────────────── Health ──────────────────────────────
