@@ -2,6 +2,7 @@ import React, { useEffect, useState, useContext } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import apiClient from '../lib/axios';
 import { ThemeContext } from '../App';
+import { useMinLoadingTime } from '../lib/useMinLoadingTime';
 
 export function FraudAnalytics() {
   const { isDark } = useContext(ThemeContext);
@@ -55,6 +56,8 @@ export function FraudAnalytics() {
     };
   }, []);
 
+  const showSkeleton = useMinLoadingTime(isLoading, 1200);
+
   const handleExportTrace = async () => {
     if (!dashboardData) return;
     setIsExporting(true);
@@ -99,11 +102,11 @@ export function FraudAnalytics() {
       <div>
         <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white">Fraud Intelligence</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2 max-w-lg">
-          Real-time monitoring of heuristic detection models, ML inference engine, and active threat mitigation mechanisms.
+          Real-time monitoring of rule-based heuristic detection, active threat mitigation, and risk distribution.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Critical Threats Blocked */}
         <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-6 shadow-sm dark:shadow-none flex flex-col justify-center">
           <div className="flex items-center gap-2 mb-4">
@@ -111,7 +114,7 @@ export function FraudAnalytics() {
             <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-500 font-bold">Critical Threats Blocked</span>
           </div>
           <div className="text-5xl font-mono font-bold text-zinc-900 dark:text-white tracking-tighter">
-            {isLoading ? <span className="h-12 w-16 bg-zinc-100 dark:bg-white/5 animate-pulse rounded block"></span> : flaggedCount}
+            {showSkeleton ? <span className="h-12 w-16 bg-zinc-100 dark:bg-white/5 animate-pulse rounded block"></span> : flaggedCount}
           </div>
           {dashboardData && flaggedCount > 0 && (
             <p className="text-[10px] text-red-500 font-bold mt-3 uppercase tracking-widest">
@@ -124,10 +127,10 @@ export function FraudAnalytics() {
         <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-6 shadow-sm dark:shadow-none flex flex-col justify-center">
           <div className="flex items-center gap-2 mb-4">
             <span className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]"></span>
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-500 font-bold">AI Confidence Vector</span>
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-500 font-bold">Security Confidence</span>
           </div>
           <div className="text-5xl font-mono font-bold text-zinc-900 dark:text-white tracking-tighter">
-            {isLoading ? <span className="h-12 w-20 bg-zinc-100 dark:bg-white/5 animate-pulse rounded block"></span> : `${confidenceVector}%`}
+            {showSkeleton ? <span className="h-12 w-20 bg-zinc-100 dark:bg-white/5 animate-pulse rounded block"></span> : `${confidenceVector}%`}
           </div>
           {dashboardData && (
             <p className="text-[10px] text-zinc-400 font-bold mt-3 uppercase tracking-widest">
@@ -136,25 +139,6 @@ export function FraudAnalytics() {
           )}
         </div>
 
-        {/* ML Model Status */}
-        <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-6 shadow-sm dark:shadow-none flex flex-col justify-center bg-[radial-gradient(ellipse_at_top_right,rgba(139,92,246,0.06)_0%,transparent_70%)]">
-          <div className="flex items-center gap-2 mb-4">
-            <span className={`w-2 h-2 rounded-full ${avgMlScore !== null ? 'bg-violet-500 animate-pulse' : 'bg-zinc-400'} shadow-[0_0_8px_rgba(139,92,246,0.5)]`}></span>
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-500 font-bold">ML Model Output</span>
-          </div>
-          <div className="text-5xl font-mono font-bold text-zinc-900 dark:text-white tracking-tighter">
-            {isLoading ? (
-              <span className="h-12 w-20 bg-zinc-100 dark:bg-white/5 animate-pulse rounded block"></span>
-            ) : avgMlScore !== null ? (
-              `${avgMlScore}%`
-            ) : (
-              <span className="text-2xl text-zinc-400">N/A</span>
-            )}
-          </div>
-          <p className="text-[10px] font-bold mt-3 uppercase tracking-widest text-violet-500/70">
-            Avg P(Fraud) — RandomForest
-          </p>
-        </div>
 
         {/* Export + Risk Distribution */}
         <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-6 shadow-sm dark:shadow-none flex flex-col justify-between bg-[radial-gradient(ellipse_at_bottom,rgba(79,70,229,0.05)_0%,transparent_70%)]">
@@ -181,7 +165,7 @@ export function FraudAnalytics() {
              className="w-full py-4 bg-zinc-50 hover:bg-zinc-100 dark:bg-[#121315] dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 font-bold rounded-xl text-[11px] uppercase tracking-widest transition-colors border border-zinc-200/50 dark:border-white/5 shadow-sm dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2"
            >
               <span className="material-symbols-outlined text-[18px]">dataset</span>
-              {isExporting ? 'Exporting...' : 'Export ML Trace Log'}
+              {isExporting ? 'Exporting...' : 'Export Trace Log'}
            </button>
         </div>
       </div>
@@ -201,26 +185,22 @@ export function FraudAnalytics() {
         </div>
       )}
 
-      {/* Live Threat Perception Chart — Dual Line: Composite + ML */}
+      {/* Live Threat Perception Chart */}
       <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-6 shadow-sm dark:shadow-none">
         <div className="flex items-center justify-between mb-8 border-b border-zinc-100 dark:border-white/5 pb-4">
            <div>
-             <h3 className="text-sm font-bold text-zinc-900 dark:text-white">AI Threat Perception Level (Live Window)</h3>
+             <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Threat Perception Level (Live Window)</h3>
              <p className="text-[10px] text-zinc-400 mt-1 flex items-center gap-3">
                <span className="flex items-center gap-1.5">
                  <span className="w-3 h-0.5 bg-red-500 rounded-full inline-block"></span>
-                 Composite Risk
-               </span>
-               <span className="flex items-center gap-1.5">
-                 <span className="w-3 h-0.5 bg-violet-500 rounded-full inline-block"></span>
-                 ML P(Fraud)
+                 Risk Score
                </span>
              </p>
            </div>
            <span className="text-[9px] font-bold text-zinc-500 font-mono uppercase tracking-widest bg-zinc-100 dark:bg-[#121315] px-2.5 py-1 rounded">Polling 5s</span>
         </div>
 
-        <div className="h-96 w-full mt-4">
+        <div className="min-h-[400px] h-[400px] w-full mt-4 relative">
           {chartHistory.length === 0 ? (
             <div className="h-full flex items-center justify-center border-2 border-dashed border-zinc-100 dark:border-white/5 rounded-2xl">
               <div className="text-center space-y-2">
@@ -229,7 +209,7 @@ export function FraudAnalytics() {
               </div>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
               <AreaChart data={chartHistory} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
@@ -268,17 +248,6 @@ export function FraudAnalytics() {
                   fill="url(#colorScore)"
                   isAnimationActive={false}
                   name="risk"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="ml_risk"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  strokeDasharray="6 3"
-                  fillOpacity={1}
-                  fill="url(#colorMlScore)"
-                  isAnimationActive={false}
-                  name="ml_risk"
                 />
               </AreaChart>
             </ResponsiveContainer>

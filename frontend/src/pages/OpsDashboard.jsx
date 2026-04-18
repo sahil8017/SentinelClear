@@ -270,16 +270,42 @@ export function OpsDashboard() {
                        Critical Risk Detected: <span className="text-red-500 font-bold">{((alert.risk_score || alert.score || 0.85)*100).toFixed(0)}%</span>
                     </p>
                     {alert.rules_triggered && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {(Array.isArray(alert.rules_triggered) ? alert.rules_triggered : []).map((rule, j) => (
-                          <span key={j} className="px-1.5 py-0.5 bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 rounded text-[8px] font-bold uppercase">
-                            {rule.replace(/_/g, ' ')}
-                          </span>
+                      <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex flex-wrap gap-1">
+                          {(Array.isArray(alert.rules_triggered) ? alert.rules_triggered : []).filter(r => typeof r === 'string').map((rule, j) => (
+                            <span key={j} className="px-1.5 py-0.5 bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 rounded text-[8px] font-bold uppercase transition-colors">
+                              {rule.replace(/_/g, ' ')}
+                            </span>
+                          ))}
+                        </div>
+                        {(Array.isArray(alert.rules_triggered) ? alert.rules_triggered : []).filter(r => typeof r === 'object' && r?.xai_factor).map((xai, j) => (
+                          <div key={j} className="w-full bg-zinc-900 dark:bg-black rounded-lg p-3 border border-red-500/50 relative overflow-hidden group shadow-lg">
+                            <div className="absolute top-0 left-0 w-1 h-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]"></div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1.5">
+                              <span className="material-symbols-outlined text-[14px] text-indigo-400">psychology</span>
+                              AI Threat Matrix Insight
+                            </p>
+                            <p className="text-sm font-bold text-white mb-0.5">{xai.xai_factor}</p>
+                            <p className="text-[11px] text-zinc-400 font-medium leading-relaxed">{xai.xai_detail}</p>
+                          </div>
                         ))}
                       </div>
                     )}
                   </div>
-                  <span className="material-symbols-outlined text-red-500 text-2xl shrink-0">gpp_maybe</span>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <span className="material-symbols-outlined text-red-500 text-2xl">gpp_maybe</span>
+                    {(alert.transfer_id || alert.transaction_id) && (
+                      <a 
+                        href={`/api/fraud/str/${alert.transfer_id || alert.transaction_id}`} 
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white rounded text-[9px] font-bold uppercase tracking-widest transition-colors flex items-center gap-1 shadow-sm"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">download</span>
+                        Export STR
+                      </a>
+                    )}
+                  </div>
                 </div>
               ))
             )}
@@ -314,6 +340,88 @@ export function OpsDashboard() {
              )}
           </div>
       </div>
+
+      {/* System Settings Panel */}
+      <SystemSettingsPanel />
+    </div>
+  );
+}
+
+function SystemSettingsPanel() {
+  const [settings, setSettings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null);
+
+  useEffect(() => {
+    apiClient.get('/admin/settings')
+      .then(res => setSettings(res.data))
+      .catch(() => toast.error('Failed to load system settings'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleUpdate = async (key, newValue) => {
+    setSaving(key);
+    try {
+      await apiClient.put('/admin/settings', { key, value: newValue });
+      setSettings(prev => prev.map(s => s.key === key ? { ...s, value: newValue } : s));
+      toast.success(`${key} updated`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Update failed');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 shadow-sm dark:shadow-none">
+      <div className="border-b border-zinc-100 dark:border-white/5 pb-4 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="material-symbols-outlined text-indigo-500 text-lg">tune</span>
+          <h3 className="text-sm font-bold text-zinc-900 dark:text-white">System Settings</h3>
+        </div>
+        <p className="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold">Admin-configurable runtime limits & thresholds</p>
+      </div>
+
+      {loading ? (
+        <div className="space-y-4">
+          {[1,2,3].map(i => (
+            <div key={i} className="h-16 bg-zinc-100 dark:bg-white/5 animate-pulse rounded-xl" />
+          ))}
+        </div>
+      ) : settings.length === 0 ? (
+        <p className="text-[12px] text-zinc-400 font-medium">No settings configured yet.</p>
+      ) : (
+        <div className="space-y-4">
+          {settings.map(s => (
+            <div key={s.key} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border border-zinc-200 dark:border-white/5 rounded-xl bg-zinc-50 dark:bg-black/20">
+              <div className="min-w-0">
+                <p className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-tight">{s.key.replace(/_/g, ' ')}</p>
+                <p className="text-[10px] text-zinc-500 mt-0.5 truncate">{s.description || 'No description'}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="text"
+                  defaultValue={s.value}
+                  onBlur={e => {
+                    if (e.target.value !== s.value) {
+                      handleUpdate(s.key, e.target.value);
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.target.blur();
+                    }
+                  }}
+                  className="w-28 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm font-mono font-bold text-right outline-none focus:border-indigo-500 transition-all text-zinc-900 dark:text-white"
+                />
+                {saving === s.key && (
+                  <span className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin shrink-0"></span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

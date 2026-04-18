@@ -30,6 +30,9 @@ class UserOut(BaseModel):
     username: str
     email: str
     role: str = "USER"
+    full_name: Optional[str] = None
+    occupation: Optional[str] = None
+    profile_complete: bool = False
     created_at: datetime
 
     class Config:
@@ -79,6 +82,7 @@ class TransferRequest(BaseModel):
     currency: Optional[str] = "INR"
     reference: Optional[str] = None
     route: Optional[str] = Field(default="IMPS", description="Routing method: IMPS, NEFT, or RTGS")
+    ip_override: Optional[str] = Field(default=None, description="Test hook for geo-velocity")
 
 
 class TransferOut(BaseModel):
@@ -90,6 +94,10 @@ class TransferOut(BaseModel):
     risk_score: Optional[float] = None
     ml_risk_score: Optional[float] = None
     fraud_rules_triggered: Optional[str] = None
+    source_ip: Optional[str] = None
+    source_city: Optional[str] = None
+    reference: Optional[str] = None
+    auth_challenge_id: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -320,3 +328,157 @@ class LoanRepaymentOut(BaseModel):
 
 class LoanRepaymentRequest(BaseModel):
     amount: float = Field(..., gt=0)
+
+
+# ────────────────────────────── Credit Profile & Scoring ──────────────────────────────
+
+
+class CreditProfileCreate(BaseModel):
+    """User-provided financial indicators for credit assessment."""
+    monthly_income: float = Field(..., gt=0, description="Gross monthly income in INR")
+    existing_liabilities: float = Field(default=0.0, ge=0, description="Existing monthly EMI/debt obligations")
+    total_assets: float = Field(default=0.0, ge=0, description="Total value of savings, investments, property")
+    employment_type: str = Field(default="salaried", description="salaried, self_employed, freelancer, unemployed")
+    employment_years: float = Field(default=0.0, ge=0, description="Years of employment / business tenure")
+    age: int = Field(default=25, ge=18, le=80, description="Age of the applicant")
+    dependents: int = Field(default=0, ge=0, le=15, description="Number of financial dependents")
+    residence_type: str = Field(default="rented", description="owned, rented, parental")
+
+
+class CreditProfileOut(BaseModel):
+    """Full credit profile returned by the API."""
+    user_id: int
+    monthly_income: float
+    existing_liabilities: float
+    total_assets: float
+    employment_type: str
+    employment_years: float
+    age: int
+    dependents: int
+    residence_type: str
+    repayment_history_score: float
+    account_age_months: int
+    avg_monthly_balance: float
+    num_previous_loans: int
+    num_defaults: int
+    transaction_regularity: float
+    credit_score: int
+    foir: float
+    debt_to_income: float
+    ml_eligibility_score: Optional[float] = None
+    ml_risk_category: Optional[str] = None
+    last_assessed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CreditAssessmentOut(BaseModel):
+    """Result of running the ML credit assessment pipeline."""
+    credit_score: int
+    credit_rating: str                  # e.g., "EXCELLENT", "GOOD", "FAIR", "POOR"
+    foir: float
+    debt_to_income: float
+    ml_eligibility_score: float         # Probability of loan eligibility
+    ml_risk_category: str               # LOW, MEDIUM, HIGH, VERY_HIGH
+    eligible: bool
+    max_eligible_amount: float          # Maximum loan principal based on risk
+    recommended_interest_rate: float    # Risk-adjusted interest rate
+    explanation: list[dict]             # XAI breakdown
+    rbi_remarks: list[str]              # Regulatory observations
+
+
+class LoanEligibilityOut(BaseModel):
+    """Pre-approval check response — used before formal application."""
+    eligible: bool
+    credit_score: int
+    max_loan_amount: float
+    recommended_tenure_months: int
+    interest_rate: float
+    monthly_emi: float
+    risk_category: str
+    reasons: list[str]
+
+
+class WhitelistAdd(BaseModel):
+    contact_account_id: str = Field(..., description="Account ID to whitelist")
+    nickname: Optional[str] = Field(None, max_length=100, description="Optional friendly name")
+
+
+class WhitelistedContactOut(BaseModel):
+    id: str
+    contact_account_id: str
+    nickname: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class KillSwitchToggle(BaseModel):
+    pin: Optional[str] = Field(None, min_length=4, max_length=6,
+                               description="Transaction PIN required to deactivate")
+
+
+class KillSwitchResponse(BaseModel):
+    active: bool
+    activated_at: Optional[datetime] = None
+    message: str
+
+
+class ProfileUpdate(BaseModel):
+    date_of_birth: Optional[date] = None
+    is_disabled: Optional[bool] = None
+
+
+class ProfileOut(BaseModel):
+    id: int
+    username: str
+    email: str
+    role: str = "USER"
+    full_name: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    occupation: Optional[str] = None
+    profile_complete: bool = False
+    is_disabled: bool = False
+    trusted_person_username: Optional[str] = None
+    kill_switch_active: bool = False
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TrustedPersonSet(BaseModel):
+    username: str = Field(..., description="Username of the trusted person to designate as guardian")
+
+
+class TrustedPersonResponse(BaseModel):
+    trusted_person_id: Optional[int] = None
+    trusted_person_username: Optional[str] = None
+    message: str
+
+
+class TransferPausedResponse(BaseModel):
+    detail: str
+    transfer_id: str
+    status: str = "PAUSED"
+    cooldown_seconds: int
+    message: str = "Confirm or cancel this transaction within the cooldown period."
+
+
+class GuardianPendingResponse(BaseModel):
+    detail: str
+    transfer_id: str
+    status: str = "PENDING_GUARDIAN"
+    guardian_username: Optional[str] = None
+    message: str = "Your trusted person must approve this transaction."
+
+
+class AnnualLimitStatus(BaseModel):
+    account_id: str
+    annual_received: float
+    annual_limit: float
+    fiscal_year: Optional[str] = None
+    is_frozen: bool
+    remaining: float

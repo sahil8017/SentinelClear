@@ -4,10 +4,17 @@ from urllib.parse import urlparse
 
 import docker
 import httpx
+import time
+import uuid
+import random
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 
 from app.config import settings
 from app.dependencies import require_admin
+from app.database import AsyncSessionLocal
+from app.models import Account
+from app.services.ledger import create_double_entry
 
 logger = logging.getLogger("chaos")
 
@@ -23,7 +30,7 @@ except Exception as e:
 
 async def get_container(name: str):
     if not docker_client:
-        raise HTTPException(status_code=500, detail="Docker client unavailable")
+        raise HTTPException(status_code=503, detail="Chaos control unavailable: Docker socket not found in this environment.")
     try:
         return await asyncio.to_thread(docker_client.containers.get, name)
     except docker.errors.NotFound:
@@ -62,6 +69,70 @@ async def restore_worker():
     container = await get_container("async-worker")
     await asyncio.to_thread(container.unpause)
     return {"status": "running", "container": "async-worker"}
+
+
+@router.post("/admin/chaos/stress-test", dependencies=[Depends(require_admin)])
+async def stress_test():
+    """Fire 50 concurrent transactions directly against the double-entry accounting engine to verify lock mechanics."""
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(select(Account).limit(2))
+        accounts = res.scalars().all()
+        if len(accounts) < 2:
+            return {"error": "Need at least 2 accounts initialized to run tests."}
+        acct1, acct2 = accounts[0], accounts[1]
+
+    async def _concurrent_worker(attempt: int):
+        async with AsyncSessionLocal() as session:
+            try:
+                # Always sort IDs for uniform lock acquisition to avoid classical dining philosophers deadlock natively
+                id1, id2 = (acct1.id, acct2.id) if acct1.id < acct2.id else (acct2.id, acct1.id)
+                # FOR UPDATE row-level lock
+                r1 = await session.execute(select(Account).where(Account.id == id1).with_for_update())
+                r2 = await session.execute(select(Account).where(Account.id == id2).with_for_update())
+                
+                s1, s2 = r1.scalar_one(), r2.scalar_one()
+                # To simulate massive load & force collisions, we use a random tiny float
+                amount = round(random.uniform(0.01, 0.05), 2)
+                
+                if s1.balance < amount:
+                    return {"status": "failed", "reason": "insufficient_balance"}
+                
+                s1.balance -= amount
+                s2.balance += amount
+                
+                transfer_id = str(uuid.uuid4())
+                await create_double_entry(
+                   session,
+                   transfer_id,
+                   s1.id, s2.id, amount,
+                   s1.balance, s2.balance
+                )
+                await session.commit()
+                return {"status": "succeeded", "reason": None}
+            except Exception as e:
+                await session.rollback()
+                return {"status": "deadlock", "reason": str(e)}
+
+    start_time = time.time()
+    
+    # 50 Simultaneous Tasks Launched without any intermediate yields
+    tasks = [_concurrent_worker(i) for i in range(50)]
+    results = await asyncio.gather(*tasks)
+    
+    latency = time.time() - start_time
+    succeeded = sum(1 for r in results if r["status"] == "succeeded")
+    failed = sum(1 for r in results if r["status"] == "failed")
+    deadlocks = sum(1 for r in results if r["status"] == "deadlock")
+    
+    return {
+        "metrics": {
+            "attempted": 50,
+            "succeeded": succeeded,
+            "failed_validation": failed, 
+            "deadlocks": deadlocks,
+            "latency_ms": round(latency * 1000, 2)
+        }
+    }
 
 
 @router.get("/admin/chaos/status")

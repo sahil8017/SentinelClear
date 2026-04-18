@@ -137,3 +137,122 @@ async def deposit(
     await redis_cache.invalidate_balance(account.id)
 
     return account
+
+
+# ════════════════════════════════════════════════════════════════════════
+# UPI SAFETY: EMERGENCY KILL SWITCH
+# ════════════════════════════════════════════════════════════════════════
+
+from passlib.context import CryptContext as _KSCrypt
+from app.schemas import KillSwitchToggle, KillSwitchResponse, AnnualLimitStatus
+from app.config import settings as _ks_settings
+from datetime import datetime as _ks_dt
+
+_ks_ctx = _KSCrypt(schemes=["bcrypt"], deprecated="auto")
+
+
+@router.post("/kill-switch/activate", response_model=KillSwitchResponse)
+async def activate_kill_switch(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Activate the Emergency Kill Switch — instantly freeze ALL outgoing UPI payments.
+
+    UPI Safety Rule 3: This is a panic button for users who suspect their
+    phone is hacked or are in an emergency situation. No PIN required to activate.
+    """
+    user.kill_switch_active = True
+    user.kill_switch_activated_at = _ks_dt.utcnow()
+    await db.commit()
+
+    return KillSwitchResponse(
+        active=True,
+        activated_at=user.kill_switch_activated_at,
+        message="🚨 EMERGENCY KILL SWITCH ACTIVATED — All outgoing payments are now suspended.",
+    )
+
+
+@router.post("/kill-switch/deactivate", response_model=KillSwitchResponse)
+async def deactivate_kill_switch(
+    body: KillSwitchToggle,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate the Emergency Kill Switch — resume outgoing payments.
+
+    Requires transaction PIN verification to prevent an attacker
+    from re-enabling payments on a compromised device.
+    """
+    if not user.kill_switch_active:
+        return KillSwitchResponse(
+            active=False,
+            message="Kill switch is not active.",
+        )
+
+    # Require PIN to deactivate
+    if not body.pin:
+        raise HTTPException(
+            status_code=400,
+            detail="Transaction PIN required to deactivate the kill switch.",
+        )
+
+    if not user.transaction_pin_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="No transaction PIN configured. Please set one via /auth/transaction-pin first.",
+        )
+
+    if not _ks_ctx.verify(body.pin, user.transaction_pin_hash):
+        raise HTTPException(
+            status_code=403,
+            detail="Incorrect transaction PIN. Kill switch remains active.",
+        )
+
+    user.kill_switch_active = False
+    user.kill_switch_activated_at = None
+    await db.commit()
+
+    return KillSwitchResponse(
+        active=False,
+        message="Kill switch deactivated. Outgoing payments are now resumed.",
+    )
+
+
+@router.get("/kill-switch/status", response_model=KillSwitchResponse)
+async def get_kill_switch_status(
+    user: User = Depends(get_current_user),
+):
+    """Check the current state of the user's Emergency Kill Switch."""
+    return KillSwitchResponse(
+        active=user.kill_switch_active,
+        activated_at=user.kill_switch_activated_at if user.kill_switch_active else None,
+        message="Kill switch is ACTIVE." if user.kill_switch_active else "Kill switch is inactive.",
+    )
+
+
+@router.get("/annual-limit/status", response_model=AnnualLimitStatus)
+async def get_annual_limit_status(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check the annual receiving limit usage for the user's primary account."""
+    result = await db.execute(
+        select(Account)
+        .where(Account.owner_id == user.id)
+        .order_by(Account.created_at.asc())
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="No account found")
+
+    limit = _ks_settings.UPI_ANNUAL_RECEIVING_LIMIT
+    remaining = max(0.0, limit - account.annual_received)
+
+    return AnnualLimitStatus(
+        account_id=account.id,
+        annual_received=account.annual_received,
+        annual_limit=limit,
+        fiscal_year=account.annual_received_fy,
+        is_frozen=account.is_frozen,
+        remaining=remaining,
+    )

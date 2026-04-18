@@ -46,8 +46,7 @@ async def create_audit_entry(
         created_at=now,
     )
     db.add(entry)
-    await db.commit()
-    await db.refresh(entry)
+    await db.flush()
     return entry
 
 

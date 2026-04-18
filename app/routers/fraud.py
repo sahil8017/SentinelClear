@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models import FraudRuleConfig, Transfer, User
+from app.services.str_generator import generate_fiu_str_pdf
+from fastapi.responses import Response
 from app.schemas import (
     FraudDashboardResponse,
     FraudRuleConfigOut,
@@ -140,7 +142,11 @@ async def fraud_dashboard(
     for row in rule_result.fetchall():
         try:
             rules = json.loads(row[0])
-            all_rules.extend(rules)
+            for r in rules:
+                if isinstance(r, str):
+                    all_rules.append(r)
+                elif isinstance(r, dict) and "xai_factor" in r:
+                    all_rules.append("ML_ANOMALY_XAI")
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -160,20 +166,27 @@ async def fraud_dashboard(
     recent_flagged = recent_result.scalars().all()
 
     # ── Risk distribution ──
+    # Replaced N+1 loop with a single aggregate query
     distribution = {"low": 0, "medium": 0, "high": 0, "critical": 0}
-    dist_result = await db.execute(
-        select(Transfer.risk_score).where(Transfer.risk_score.isnot(None))
-    )
-    for row in dist_result.fetchall():
-        score = row[0]
-        if score < 0.25:
-            distribution["low"] += 1
-        elif score < 0.5:
-            distribution["medium"] += 1
-        elif score < 0.75:
-            distribution["high"] += 1
-        else:
-            distribution["critical"] += 1
+    dist_query = """
+        SELECT
+            SUM(CASE WHEN risk_score < 0.25 THEN 1 ELSE 0 END) as low,
+            SUM(CASE WHEN risk_score >= 0.25 AND risk_score < 0.5 THEN 1 ELSE 0 END) as medium,
+            SUM(CASE WHEN risk_score >= 0.5 AND risk_score < 0.75 THEN 1 ELSE 0 END) as high,
+            SUM(CASE WHEN risk_score >= 0.75 THEN 1 ELSE 0 END) as critical
+        FROM transfers
+        WHERE risk_score IS NOT NULL
+    """
+    from sqlalchemy import text
+    dist_result = await db.execute(text(dist_query))
+    row = dist_result.first()
+    if row:
+        distribution = {
+            "low": int(row[0] or 0),
+            "medium": int(row[1] or 0),
+            "high": int(row[2] or 0),
+            "critical": int(row[3] or 0)
+        }
 
     return FraudDashboardResponse(
         total_transfers=total,
@@ -231,3 +244,29 @@ async def update_fraud_rule(
     await db.commit()
     await db.refresh(config)
     return config
+
+
+@router.get("/str/{transfer_id}")
+async def generate_str_report(
+    transfer_id: str,
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate a dynamic Suspicious Transaction Report (STR) PDF for a specific flagged transfer.
+    Used for RegTech compliance and FIU (Financial Intelligence Unit) reporting.
+    """
+    result = await db.execute(select(Transfer).where(Transfer.id == transfer_id))
+    transfer = result.scalar_one_or_none()
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+
+    pdf_bytes = generate_fiu_str_pdf(transfer)
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="STR_{transfer_id}.pdf"'
+        }
+    )

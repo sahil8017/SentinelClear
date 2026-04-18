@@ -1,2 +1,0 @@
-time="2026-04-08T01:13:13+05:30" level=warning msg="C:\\PROJECT\\MAJOR\\SentinelClear\\docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
-Error response from daemon: Container bacee7a41a23fda38bfaeb1e6c69f53c3b30e95567f852cbe8e70539b0f0137c is restarting, wait until the container is running

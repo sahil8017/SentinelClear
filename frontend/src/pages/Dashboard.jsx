@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import apiClient from '../lib/axios';
 import { toast } from 'sonner';
 import { ThemeContext } from '../App';
 import { formatINR, getISTHour } from '../lib/format';
+import { useMinLoadingTime } from '../lib/useMinLoadingTime';
 import { Skeleton } from '../components/ui/Skeleton';
 
 export function Dashboard() {
@@ -14,9 +15,9 @@ export function Dashboard() {
   const [error, setError] = useState(null);
   const [account, setAccount] = useState(null);
   const [history, setHistory] = useState([]);
-  const [chartData, setChartData] = useState([]);
+  const [balanceTimeline, setBalanceTimeline] = useState([]);
+  const [incomeExpenseData, setIncomeExpenseData] = useState([]);
   const [personalStats, setPersonalStats] = useState({ sent: 0, received: 0, count: 0 });
-  const [isSimulatingCrash, setIsSimulatingCrash] = useState(false);
   const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [isDepositing, setIsDepositing] = useState(false);
@@ -52,23 +53,87 @@ export function Dashboard() {
 
         setPersonalStats({ sent, received, count: historyData.length });
 
-        const now = new Date();
-        const hourlyMap = {};
-        for (let i = 11; i >= 0; i--) {
-          const d = new Date(now.getTime() - i * 1 * 60 * 60 * 1000); // 1hr steps
-          const h = getISTHour(d);
-          const label = `${h}:00`;
-          hourlyMap[label] = 0;
+        // ───────────────────────────────────────────────────
+        // BUILD "Account Balance Over Time" (reverse compute)
+        // Walk transfers in reverse-chronological order and 
+        // reconstruct what the balance was at each transfer.
+        // ───────────────────────────────────────────────────
+        const completedTxns = historyData
+          .filter(tx => tx.status === 'COMPLETED')
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // newest first
+
+        const currentBalance = currentUser.balance || 0;
+        const timeline = [];
+        let runningBalance = currentBalance;
+
+        // The current moment
+        timeline.push({
+          date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+          balance: runningBalance,
+          rawDate: new Date(),
+        });
+
+        for (const tx of completedTxns) {
+          // Reverse the transaction to get the balance before it
+          if (tx.sender_account_id === currentUser.id) {
+            // User sent money → balance was higher before
+            runningBalance += tx.amount;
+          } else if (tx.receiver_account_id === currentUser.id) {
+            // User received money → balance was lower before
+            runningBalance -= tx.amount;
+          }
+
+          timeline.push({
+            date: new Date(tx.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+            balance: Math.max(0, runningBalance),
+            rawDate: new Date(tx.created_at),
+          });
         }
-        historyData.forEach(tx => {
-          if(tx.status !== 'COMPLETED') return;
-          const h = getISTHour(tx.created_at);
-          const label = `${h}:00`;
-          if (hourlyMap.hasOwnProperty(label)) {
-            hourlyMap[label] += tx.amount;
+
+        // Reverse to chronological order (oldest → newest)
+        timeline.reverse();
+
+        // Deduplicate by date label, keeping the last entry for each date
+        const deduped = [];
+        const seenDates = new Set();
+        for (let i = timeline.length - 1; i >= 0; i--) {
+          const key = timeline[i].date;
+          if (!seenDates.has(key)) {
+            seenDates.add(key);
+            deduped.unshift(timeline[i]);
+          }
+        }
+
+        setBalanceTimeline(deduped.length > 1 ? deduped : timeline);
+
+        // ───────────────────────────────────────────────────
+        // BUILD "Income vs Expenses" breakdown (last 7 days)
+        // ───────────────────────────────────────────────────
+        const now = new Date();
+        const dayMap = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+          const label = d.toLocaleDateString('en-IN', { weekday: 'short' });
+          dayMap[label] = { day: label, income: 0, expenses: 0 };
+        }
+
+        completedTxns.forEach(tx => {
+          const txDate = new Date(tx.created_at);
+          const daysDiff = Math.floor((now - txDate) / (1000 * 60 * 60 * 24));
+          if (daysDiff <= 6) {
+            const label = txDate.toLocaleDateString('en-IN', { weekday: 'short' });
+            if (dayMap[label]) {
+              if (tx.receiver_account_id === currentUser.id) {
+                dayMap[label].income += tx.amount;
+              }
+              if (tx.sender_account_id === currentUser.id) {
+                dayMap[label].expenses += tx.amount;
+              }
+            }
           }
         });
-        setChartData(Object.entries(hourlyMap).map(([time, amount]) => ({ time, amount })));
+
+        setIncomeExpenseData(Object.values(dayMap));
       }
 
       if (accRes.status === 'rejected' && historyRes.status === 'rejected') {
@@ -86,48 +151,6 @@ export function Dashboard() {
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
-
-  // Chaos simulation — hits real backend
-  const handleSimulateCrash = async () => {
-    setIsSimulatingCrash(true);
-    toast.error("CHAOS_INJECTION: Killing database...", {
-      description: "Sending kill signal to primary persistence layer...",
-      duration: 5000,
-    });
-
-    try {
-      await apiClient.post('/admin/chaos/kill-db', null, {
-        headers: { 'X-Admin-Token': 'change-me-in-production' }
-      });
-      toast.error("DATABASE_PARTITION_ACTIVE", {
-        description: "PostgreSQL container paused. All queries will timeout.",
-        duration: 4000,
-      });
-
-      // Auto-recover after 5 seconds
-      setTimeout(async () => {
-        try {
-          await apiClient.post('/admin/chaos/restore-db', null, {
-            headers: { 'X-Admin-Token': 'change-me-in-production' }
-          });
-          toast.success("SYSTEM_RECOVERY_COMPLETE", {
-            description: "Ledger integrity verified. Database restored.",
-            duration: 4000,
-          });
-        } catch (e) {
-          toast.warning("Auto-recovery failed. Manual restore required.");
-        }
-        setIsSimulatingCrash(false);
-        fetchDashboardData();
-      }, 5000);
-
-    } catch (err) {
-      // Chaos endpoints might be disabled
-      const detail = err.response?.data?.detail || 'Chaos endpoints disabled in this deployment';
-      toast.warning(`Chaos unavailable: ${detail}`, { duration: 3000 });
-      setIsSimulatingCrash(false);
-    }
-  };
   
   const handleDeposit = async (e) => {
     e.preventDefault();
@@ -181,7 +204,9 @@ export function Dashboard() {
     );
   };
 
-  if (loading && !account && !error) {
+  const showSkeleton = useMinLoadingTime(loading && !account && !error, 1200);
+
+  if (showSkeleton) {
     return <DashboardSkeleton />;
   }
 
@@ -322,42 +347,90 @@ export function Dashboard() {
         />
       </div>
 
-      {/* Analytics */}
-      <div className="grid grid-cols-1 gap-8">
-        <div className="bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-sm overflow-hidden">
+      {/* Analytics Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+        {/* Balance Over Time — Primary Chart */}
+        <div className="lg:col-span-3 bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-sm overflow-hidden">
            <div className="flex justify-between items-center mb-8">
               <div>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white">My Account Activity</h3>
-                <p className="text-xs text-zinc-500 font-medium">Your personal volume across recent settlement blocks</p>
+                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Account Balance Over Time</h3>
+                <p className="text-xs text-zinc-500 font-medium">Reconstructed from your completed transfer history</p>
               </div>
-              <div className="px-3 py-1 bg-zinc-100 dark:bg-white/5 rounded-full text-[9px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-white/5">Personal Log</div>
+              <div className="px-3 py-1 bg-zinc-100 dark:bg-white/5 rounded-full text-[9px] font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-white/5">Balance Log</div>
            </div>
-           <div className="h-80 w-full">
-              {!history.length && !loading ? (
+           <div className="w-full h-[400px] relative">
+              {!balanceTimeline.length && !loading ? (
                 <div className="h-full flex items-center justify-center border-2 border-dashed border-zinc-100 dark:border-white/5 rounded-2xl">
                    <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">No activity detected</p>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={1}>
+                  <AreaChart data={balanceTimeline}>
                     <defs>
-                      <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#818cf8" stopOpacity={0.1}/>
+                      <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#818cf8" stopOpacity={0.15}/>
                         <stop offset="95%" stopColor="#818cf8" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)"} />
-                    <XAxis dataKey="time" stroke={isDark ? "#52525b" : "#a1a1aa"} fontSize={10} tickLine={false} axisLine={false} dy={10} />
+                    <XAxis dataKey="date" stroke={isDark ? "#52525b" : "#a1a1aa"} fontSize={10} tickLine={false} axisLine={false} dy={10} />
+                    <YAxis stroke={isDark ? "#52525b" : "#a1a1aa"} fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => formatINR(val)} width={80} />
                     <Tooltip
                       contentStyle={{ backgroundColor: isDark ? '#121315' : '#fff', border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', fontSize: '11px', color: isDark ? '#fff' : '#000' }}
-                      formatter={(val) => [formatINR(Number(val), true), 'Settlement Volume']}
+                      formatter={(val) => [formatINR(Number(val), true), 'Balance']}
                     />
-                    <Area type="monotone" dataKey="amount" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 4, fill: '#fff' }} />
+                    <Area type="monotone" dataKey="balance" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorBalance)" activeDot={{ r: 4, fill: '#818cf8', stroke: '#fff', strokeWidth: 2 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
            </div>
         </div>
+
+        {/* Income vs Expenses — Secondary Chart */}
+        <div className="lg:col-span-2 bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-sm overflow-hidden">
+           <div className="flex justify-between items-center mb-8">
+              <div>
+                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Income vs Expenses</h3>
+                <p className="text-xs text-zinc-500 font-medium">Last 7 days breakdown</p>
+              </div>
+              <div className="px-3 py-1 bg-emerald-50 dark:bg-emerald-500/5 rounded-full text-[9px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/10">Weekly</div>
+           </div>
+           <div className="w-full h-[400px] relative">
+              {!history.length && !loading ? (
+                <div className="h-full flex items-center justify-center border-2 border-dashed border-zinc-100 dark:border-white/5 rounded-2xl">
+                   <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">No data yet</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={1}>
+                  <BarChart data={incomeExpenseData} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)"} />
+                    <XAxis dataKey="day" stroke={isDark ? "#52525b" : "#a1a1aa"} fontSize={10} tickLine={false} axisLine={false} dy={10} />
+                    <YAxis stroke={isDark ? "#52525b" : "#a1a1aa"} fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => formatINR(val)} width={65} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: isDark ? '#121315' : '#fff', border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', fontSize: '11px', color: isDark ? '#fff' : '#000' }}
+                      formatter={(val, name) => [formatINR(Number(val), true), name === 'income' ? 'Income' : 'Expenses']}
+                    />
+                    <Bar dataKey="income" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={24} name="income" />
+                    <Bar dataKey="expenses" fill="#f59e0b" radius={[6, 6, 0, 0]} maxBarSize={24} name="expenses" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+           </div>
+
+           {/* Legend */}
+           <div className="flex items-center justify-center gap-6 mt-4">
+             <div className="flex items-center gap-2">
+               <span className="w-3 h-3 rounded-sm bg-emerald-500"></span>
+               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Income</span>
+             </div>
+             <div className="flex items-center gap-2">
+               <span className="w-3 h-3 rounded-sm bg-amber-500"></span>
+               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Expenses</span>
+             </div>
+           </div>
+        </div>
+
       </div>
 
     </div>
@@ -396,15 +469,25 @@ function DashboardSkeleton() {
         ))}
       </div>
 
-      {/* Chart Skeleton */}
-      <div className="grid grid-cols-1 gap-8">
-        <div className="bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-sm h-[450px] flex flex-col">
+      {/* Chart Skeletons */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        <div className="lg:col-span-3 bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-sm h-[500px] flex flex-col">
            <div className="flex justify-between items-start mb-8">
               <div className="space-y-2">
                  <Skeleton className="w-40 h-5" />
                  <Skeleton className="w-64 h-3" />
               </div>
               <Skeleton className="w-20 h-6 rounded-full" />
+           </div>
+           <Skeleton className="flex-1 w-full rounded-xl" />
+        </div>
+        <div className="lg:col-span-2 bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-sm h-[500px] flex flex-col">
+           <div className="flex justify-between items-start mb-8">
+              <div className="space-y-2">
+                 <Skeleton className="w-32 h-5" />
+                 <Skeleton className="w-48 h-3" />
+              </div>
+              <Skeleton className="w-16 h-6 rounded-full" />
            </div>
            <Skeleton className="flex-1 w-full rounded-xl" />
         </div>

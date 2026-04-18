@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { clearToken } from '../lib/auth';
 import { ThemeContext } from '../App';
@@ -15,8 +15,11 @@ const getNavForRole = (role) => {
   if (role === 'ADMIN') {
     return [
       { name: 'Operations Hub', href: '/admin/ops', icon: 'hub' },
+      { name: 'Maker/Checker Queue', href: '/admin/maker-checker', icon: 'fact_check' },
       { name: 'Security Analytics', href: '/admin/analytics', icon: 'shield_locked' },
       { name: 'Chaos Simulator', href: '/admin/chaos', icon: 'warning' },
+      { name: 'AML Intelligence', href: '/admin/aml-graph', icon: 'account_tree' },
+      { name: 'EOD Cryptographic Audit', href: '/admin/audit', icon: 'enhanced_encryption' },
       { name: 'Developer Tools', href: '/admin/tools', icon: 'terminal' },
       ...common
     ];
@@ -27,7 +30,8 @@ const getNavForRole = (role) => {
     { name: 'Transfers', href: '/app/transfer', icon: 'payments' },
     { name: 'Ledger Registry', href: '/app/ledger', icon: 'menu_book' },
     { name: 'Credit Hub', href: '/app/credit', icon: 'account_balance' },
-    { name: 'Developer Portal', href: '/app/developers', icon: 'api' },
+    { name: 'UPI Safety', href: '/app/upi-safety', icon: 'shield' },
+
     ...common
   ];
 };
@@ -38,11 +42,70 @@ export function Layout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isDark, toggleTheme } = useContext(ThemeContext);
   const [account, setAccount] = useState(null);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [notifCount, setNotifCount] = useState(0);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const notifRef = useRef(null);
+  const profileMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutsideNotif = (event) => {
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setIsNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutsideNotif);
+    return () => document.removeEventListener('mousedown', handleClickOutsideNotif);
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await apiClient.get('/notifications?limit=10');
+      setNotifications(res.data || []);
+      setNotifCount(res.data?.length || 0);
+    } catch {
+      setNotifications([]);
+    }
+  };
+
+  const toggleNotifPanel = () => {
+    if (!isNotifOpen) fetchNotifications();
+    setIsNotifOpen(!isNotifOpen);
+  };
+
+  const clearAllNotifications = async () => {
+    try {
+      await apiClient.delete('/notifications');
+      setNotifications([]);
+      setNotifCount(0);
+      toast.success('All notifications cleared');
+    } catch {
+      toast.error('Failed to clear notifications');
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     apiClient.get('/accounts/me')
       .then(res => setAccount(res.data))
       .catch(err => console.error('Account sync failed', err));
+    apiClient.get('/auth/profile')
+      .then(res => setProfile(res.data))
+      .catch(() => {});
+    apiClient.get('/notifications?unread=true&limit=1')
+      .then(res => setNotifCount(res.data?.length || 0))
+      .catch(() => {});
   }, []);
 
   const copyAccountId = () => {
@@ -70,9 +133,11 @@ export function Layout() {
       case '/dashboard': return 'Operations Dashboard';
       case '/ops': return 'Operations Hub';
       case '/chaos': return 'Chaos Simulator';
+      case '/aml-graph': return 'AML Intelligence';
       case '/tools': return 'Developer Tools';
-      case '/developers': return 'Developer Portal';
+
       case '/credit': return 'Credit Hub';
+      case '/upi-safety': return 'UPI Safety Hub';
       case '/docs': return 'API Documentation';
       default: return 'Sentinel Manager';
     }
@@ -180,13 +245,110 @@ export function Layout() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> 
                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest hidden sm:inline">Active Session</span>
              </div>
-             <button
-               type="button"
-               aria-label="Open notifications"
-               className="material-symbols-outlined text-zinc-400 hover:text-black dark:hover:text-white text-[20px] transition-colors"
-             >
-               notifications
-             </button>
+
+             {/* Notification Bell */}
+             <div className="relative" ref={notifRef}>
+               <button
+                 onClick={toggleNotifPanel}
+                 className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors border shadow-sm outline-none ${isNotifOpen ? 'bg-zinc-200 dark:bg-white/10 border-zinc-300 dark:border-white/20' : 'bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 border-zinc-200 dark:border-white/5'}`}
+               >
+                 <span className="material-symbols-outlined text-zinc-600 dark:text-zinc-300 text-[20px]">notifications</span>
+                 {notifCount > 0 && (
+                   <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center shadow-lg">
+                     {notifCount > 9 ? '9+' : notifCount}
+                   </span>
+                 )}
+               </button>
+
+               {isNotifOpen && (
+                 <div className="absolute top-12 right-0 w-80 bg-white dark:bg-[#121315] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 fade-in duration-200">
+                   <div className="p-4 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02] flex items-center justify-between">
+                     <p className="text-sm font-black text-zinc-900 dark:text-white">Notifications</p>
+                     <div className="flex items-center gap-3">
+                       {notifications.length > 0 && (
+                         <button onClick={clearAllNotifications} className="text-[10px] font-bold text-red-500 uppercase tracking-widest hover:text-red-400 transition-colors">
+                           Clear All
+                         </button>
+                       )}
+                       <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{notifications.length}</span>
+                     </div>
+                   </div>
+                   <div className="max-h-80 overflow-y-auto hide-scrollbar">
+                     {notifications.length === 0 ? (
+                       <div className="py-10 flex flex-col items-center gap-2 text-zinc-400">
+                         <span className="material-symbols-outlined text-3xl opacity-40">notifications_off</span>
+                         <span className="text-[11px] font-bold uppercase tracking-widest">No notifications</span>
+                       </div>
+                     ) : (
+                       notifications.map((n, i) => (
+                         <div key={n.id || i} className="px-4 py-3 border-b border-zinc-100 dark:border-white/5 hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors">
+                           <div className="flex items-start gap-3">
+                             <span className={`material-symbols-outlined text-[18px] mt-0.5 shrink-0 ${
+                               n.event_type?.includes('FLAGGED') || n.event_type?.includes('BLOCKED') ? 'text-red-500' :
+                               n.event_type?.includes('COMPLETED') ? 'text-emerald-500' : 'text-indigo-500'
+                             }`}>
+                               {n.event_type?.includes('FLAGGED') || n.event_type?.includes('BLOCKED') ? 'gpp_maybe' :
+                                n.event_type?.includes('COMPLETED') ? 'check_circle' : 'info'}
+                             </span>
+                             <div className="min-w-0 flex-1">
+                               <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{n.message || n.event_type || 'Event'}</p>
+                               <p className="text-[10px] text-zinc-400 font-medium mt-0.5">
+                                 {n.created_at ? new Date(n.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                               </p>
+                             </div>
+                           </div>
+                         </div>
+                       ))
+                     )}
+                   </div>
+                 </div>
+               )}
+             </div>
+             
+             {/* Profile Menu Wrapper */}
+             <div className="relative" ref={profileMenuRef}>
+                 <button
+                   onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                   className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors border shadow-sm outline-none ${isProfileMenuOpen ? 'bg-zinc-200 dark:bg-white/10 border-zinc-300 dark:border-white/20' : 'bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 border-zinc-200 dark:border-white/5'}`}
+                 >
+                   <span className="material-symbols-outlined text-zinc-600 dark:text-zinc-300 text-[20px]">person</span>
+                 </button>
+                 
+                 {isProfileMenuOpen && (
+                     <div className="absolute top-12 right-0 w-60 bg-white dark:bg-[#121315] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 fade-in duration-200">
+                        <div className="p-4 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02]">
+                            <p className="text-sm font-black text-zinc-900 dark:text-white truncate">{profile?.full_name || 'My Account'}</p>
+                            <p className="text-[10px] text-zinc-500 truncate mt-0.5">{profile?.email || ''}</p>
+                            <p className="text-[10px] font-mono text-zinc-400 truncate mt-1">ID: {account?.id || 'Loading...'}</p>
+                            {profile && !profile.profile_complete && (
+                              <Link to="/app/profile-setup" onClick={() => setIsProfileMenuOpen(false)}
+                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 transition-all">
+                                <span className="material-symbols-outlined text-[12px]">warning</span> Complete Setup
+                              </Link>
+                            )}
+                        </div>
+                        <div className="p-2 flex flex-col gap-1">
+                            <Link to="/app/account" onClick={() => setIsProfileMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors">
+                                <span className="material-symbols-outlined text-[18px]">person</span>
+                                Account Profile
+                            </Link>
+                            <Link to="/app/upi-safety" onClick={() => setIsProfileMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors">
+                                <span className="material-symbols-outlined text-[18px]">shield</span>
+                                UPI Safety
+                            </Link>
+                            <button onClick={() => { toggleTheme(); setIsProfileMenuOpen(false); }} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors w-full text-left">
+                                <span className="material-symbols-outlined text-[18px]">{isDark ? 'light_mode' : 'dark_mode'}</span>
+                                Toggle Theme
+                            </button>
+                            <div className="w-full h-px bg-zinc-100 dark:bg-white/5 my-1"></div>
+                            <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors w-full text-left">
+                                <span className="material-symbols-outlined text-[18px]">logout</span>
+                                Sign Out
+                            </button>
+                        </div>
+                     </div>
+                 )}
+             </div>
           </div>
         </header>
 

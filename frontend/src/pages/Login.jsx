@@ -24,6 +24,14 @@ export function Login() {
         if (role === 'ADMIN') {
           navigate('/admin/ops');
         } else {
+          // Check if profile is complete
+          try {
+            const profRes = await apiClient.get('/auth/profile');
+            if (!profRes.data.profile_complete) {
+              navigate('/app/profile-setup');
+              return;
+            }
+          } catch {}
           navigate('/app/dashboard');
         }
       }
@@ -52,6 +60,13 @@ export function Login() {
         if (role === 'ADMIN') {
           navigate('/admin/ops');
         } else {
+          try {
+            const profRes = await apiClient.get('/auth/profile');
+            if (!profRes.data.profile_complete) {
+              navigate('/app/profile-setup');
+              return;
+            }
+          } catch {}
           navigate('/app/dashboard');
         }
       }

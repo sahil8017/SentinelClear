@@ -1,7 +1,7 @@
 {
-  "name": "tmp_frontend",
+  "name": "sentinelclear-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "4.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xyflow/react": "^12.10.2",
     "axios": "^1.14.0",
     "clsx": "^2.1.1",
     "firebase": "^12.11.0",

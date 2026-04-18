@@ -24,6 +24,11 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
+      // Do NOT clear token / redirect for Step-Up Auth challenges
+      const detail = error.response.data?.detail;
+      if (detail === 'Step-Up Authentication Required') {
+        return Promise.reject(error); // Let the calling component handle it
+      }
       clearToken();
       if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
         window.location.href = '/login';

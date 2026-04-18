@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Loan, LoanRepayment, Account
+from app.models import Loan, LoanRepayment, Account, Transfer
 from app.services.ledger import create_double_entry
 from app.services.audit import create_audit_entry
 from app.services import cache as redis_cache
@@ -104,53 +104,72 @@ async def approve_loan(db: AsyncSession, loan_id: str) -> Loan:
     if not user_account_id:
         raise HTTPException(status_code=400, detail="User has no account for disbursement")
 
-    # Step 3: Ensure treasury exists
+    # Step 4: Ensure treasury exists
     await _ensure_treasury(db)
 
-    # Step 4: Acquire locks in ASCENDING UUID ORDER (AGENTS.md rule)
-    locked = await _acquire_locks_in_order(db, [TREASURY_ACCOUNT_ID, user_account_id])
-    treasury_account = locked[TREASURY_ACCOUNT_ID]
-    user_account = locked[user_account_id]
+    try:
+        # Step 5: Acquire locks in ASCENDING UUID ORDER (AGENTS.md rule)
+        locked = await _acquire_locks_in_order(db, [TREASURY_ACCOUNT_ID, user_account_id])
+        treasury_account = locked[TREASURY_ACCOUNT_ID]
+        user_account = locked[user_account_id]
 
-    # Step 5: Move funds atomically
-    treasury_account.balance -= loan.principal_amount
-    user_account.balance += loan.principal_amount
+        # Step 6: Move funds atomically
+        treasury_account.balance -= loan.principal_amount
+        user_account.balance += loan.principal_amount
 
-    # Step 6: Double-entry ledger (DEBIT treasury, CREDIT user)
-    transfer_id = str(uuid.uuid4())
-    await create_double_entry(
-        db,
-        transfer_id=transfer_id,
-        sender_account_id=treasury_account.id,
-        receiver_account_id=user_account.id,
-        amount=loan.principal_amount,
-        sender_balance_after=treasury_account.balance,
-        receiver_balance_after=user_account.balance,
-    )
+        # Step 7: Double-entry ledger (DEBIT treasury, CREDIT user)
+        transfer_id = str(uuid.uuid4())
 
-    # Step 7: Update loan status and link to account
-    loan.status = "ACTIVE"
-    loan.account_id = user_account.id
+        # Create a Transfer record so the ledger FK (transfer_id → transfers.id) is satisfied
+        transfer_record = Transfer(
+            id=transfer_id,
+            sender_account_id=treasury_account.id,
+            receiver_account_id=user_account.id,
+            amount=loan.principal_amount,
+            status="COMPLETED",
+            risk_score=0.0,
+        )
+        db.add(transfer_record)
+        await db.flush()
 
-    # Step 8: SHA-256 hash-chained audit trail
-    await create_audit_entry(
-        db,
-        transfer_id=transfer_id,
-        action="LOAN_DISBURSED",
-        details_dict={
-            "loan_id": loan.id,
-            "user_id": loan.user_id,
-            "account_id": user_account.id,
-            "principal": loan.principal_amount,
-            "interest_rate": loan.interest_rate,
-            "duration_months": loan.duration_months,
-            "treasury_balance_after": treasury_account.balance,
-            "user_balance_after": user_account.balance,
-        },
-    )
+        await create_double_entry(
+            db,
+            transfer_id=transfer_id,
+            sender_account_id=treasury_account.id,
+            receiver_account_id=user_account.id,
+            amount=loan.principal_amount,
+            sender_balance_after=treasury_account.balance,
+            receiver_balance_after=user_account.balance,
+        )
 
-    await db.refresh(loan)
-    await redis_cache.invalidate_balance(user_account.id)
+        # Step 8: Update loan status and link to account
+        loan.status = "ACTIVE"
+        loan.account_id = user_account.id
+
+        # Step 9: SHA-256 hash-chained audit trail
+        await create_audit_entry(
+            db,
+            transfer_id=transfer_id,
+            action="LOAN_DISBURSED",
+            details_dict={
+                "loan_id": loan.id,
+                "user_id": loan.user_id,
+                "account_id": user_account.id,
+                "principal": loan.principal_amount,
+                "interest_rate": loan.interest_rate,
+                "duration_months": loan.duration_months,
+                "treasury_balance_after": treasury_account.balance,
+                "user_balance_after": user_account.balance,
+            },
+        )
+
+        await db.commit()
+        await db.refresh(loan)
+        await redis_cache.invalidate_balance(user_account.id)
+
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Loan disbursement failed: {str(exc)}")
 
     return loan
 
@@ -173,7 +192,12 @@ async def process_repayment(
     if loan.status != "ACTIVE":
         raise HTTPException(status_code=400, detail=f"Cannot repay loan in status: {loan.status}")
     if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
+        raise HTTPException(status_code=400, detail="Repayment amount must be positive.")
+    if amount > loan.outstanding_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Repayment amount ₹{amount:,.2f} exceeds outstanding balance ₹{loan.outstanding_balance:,.2f}. Pay at most ₹{loan.outstanding_balance:,.2f}."
+        )
 
     # Step 2: Resolve user's primary account ID
     acct_result = await db.execute(
@@ -188,57 +212,77 @@ async def process_repayment(
     # Step 3: Ensure treasury exists
     await _ensure_treasury(db)
 
-    # Step 4: Acquire locks in ASCENDING UUID ORDER (AGENTS.md rule)
-    locked = await _acquire_locks_in_order(db, [TREASURY_ACCOUNT_ID, user_account_id])
-    treasury_account = locked[TREASURY_ACCOUNT_ID]
-    user_account = locked[user_account_id]
+    try:
+        # Step 4: Acquire locks in ASCENDING UUID ORDER (AGENTS.md rule)
+        locked = await _acquire_locks_in_order(db, [TREASURY_ACCOUNT_ID, user_account_id])
+        treasury_account = locked[TREASURY_ACCOUNT_ID]
+        user_account = locked[user_account_id]
 
-    # Step 5: Validate sufficient balance
-    if user_account.balance < amount:
-        raise HTTPException(status_code=400, detail="Insufficient balance for EMI")
+        # Step 5: Validate sufficient balance
+        if user_account.balance < amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance for EMI")
 
-    # Step 6: Move funds atomically (user → treasury)
-    user_account.balance -= amount
-    treasury_account.balance += amount
+        # Step 6: Move funds atomically (user → treasury)
+        user_account.balance -= amount
+        treasury_account.balance += amount
 
-    # Step 7: Update loan outstanding
-    loan.outstanding_balance = max(0, loan.outstanding_balance - amount)
-    if loan.outstanding_balance == 0:
-        loan.status = "CLOSED"
+        # Step 7: Update loan outstanding
+        loan.outstanding_balance = max(0, loan.outstanding_balance - amount)
+        if loan.outstanding_balance == 0:
+            loan.status = "CLOSED"
 
-    # Step 8: Double-entry ledger (DEBIT user, CREDIT treasury)
-    transfer_id = str(uuid.uuid4())
-    await create_double_entry(
-        db,
-        transfer_id=transfer_id,
-        sender_account_id=user_account.id,
-        receiver_account_id=treasury_account.id,
-        amount=amount,
-        sender_balance_after=user_account.balance,
-        receiver_balance_after=treasury_account.balance,
-    )
+        # Step 8: Double-entry ledger (DEBIT user, CREDIT treasury)
+        transfer_id = str(uuid.uuid4())
 
-    # Step 9: Record repayment
-    repayment = LoanRepayment(loan_id=loan.id, amount=amount)
-    db.add(repayment)
+        # Create a Transfer record so the ledger FK is satisfied
+        transfer_record = Transfer(
+            id=transfer_id,
+            sender_account_id=user_account.id,
+            receiver_account_id=treasury_account.id,
+            amount=amount,
+            status="COMPLETED",
+            risk_score=0.0,
+        )
+        db.add(transfer_record)
+        await db.flush()
 
-    # Step 10: SHA-256 hash-chained audit trail
-    await create_audit_entry(
-        db,
-        transfer_id=transfer_id,
-        action="LOAN_REPAYMENT",
-        details_dict={
-            "loan_id": loan.id,
-            "repayment_amount": amount,
-            "outstanding_after": loan.outstanding_balance,
-            "loan_status": loan.status,
-            "user_balance_after": user_account.balance,
-            "treasury_balance_after": treasury_account.balance,
-        },
-    )
+        await create_double_entry(
+            db,
+            transfer_id=transfer_id,
+            sender_account_id=user_account.id,
+            receiver_account_id=treasury_account.id,
+            amount=amount,
+            sender_balance_after=user_account.balance,
+            receiver_balance_after=treasury_account.balance,
+        )
 
-    await db.commit()
-    await db.refresh(repayment)
-    await redis_cache.invalidate_balance(user_account.id)
+        # Step 9: Record repayment
+        repayment = LoanRepayment(loan_id=loan.id, amount=amount)
+        db.add(repayment)
+
+        # Step 10: SHA-256 hash-chained audit trail
+        await create_audit_entry(
+            db,
+            transfer_id=transfer_id,
+            action="LOAN_REPAYMENT",
+            details_dict={
+                "loan_id": loan.id,
+                "repayment_amount": amount,
+                "outstanding_after": loan.outstanding_balance,
+                "loan_status": loan.status,
+                "user_balance_after": user_account.balance,
+                "treasury_balance_after": treasury_account.balance,
+            },
+        )
+
+        await db.commit()
+        await db.refresh(repayment)
+        await redis_cache.invalidate_balance(user_account.id)
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Loan repayment failed: {str(exc)}")
 
     return repayment

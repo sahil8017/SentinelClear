@@ -6,16 +6,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import text
+from passlib.context import CryptContext
+from sqlalchemy import text, select
 
 from app.config import settings
 from app.database import engine, AsyncSessionLocal
-from app.models import Base
+from app.models import Base, User
 from app.services import rabbitmq as rmq
 from app.services import cache as redis_cache
 from app.services.fraud import seed_rule_configs
 from app.services.reconciliation import run_reconciliation
-from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement, websocket, chaos, loans
+from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement, websocket, chaos, loans, aml, whitelist, admin_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger("sentinelclear")
@@ -38,13 +39,23 @@ async def lifespan(app: FastAPI):
         await seed_rule_configs(db)
     logger.info("✅ Fraud rule engine ready")
 
-    # Load ML fraud model into memory
-    from app.services.ml_service import load_model as load_ml_model
-    ml_loaded = load_ml_model()
-    if ml_loaded:
-        logger.info("✅ ML Fraud Model loaded — hybrid scoring active")
+    # Seed default transaction PINs for demo users who don't have one
+    _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.transaction_pin_hash.is_(None)))
+        users_without_pin = result.scalars().all()
+        for u in users_without_pin:
+            u.transaction_pin_hash = _pwd.hash("1234")  # Default demo PIN
+        if users_without_pin:
+            await db.commit()
+            logger.info(f"🔐 Seeded default transaction PIN for {len(users_without_pin)} users (PIN: 1234)")
+
+    # ML Loan Eligibility Model
+    from app.services.ml_loan_service import load_model as load_loan_model
+    if load_loan_model():
+        logger.info("✅ Loan eligibility ML model loaded — credit scoring active")
     else:
-        logger.warning("⚠️  ML model not found — running rule-engine-only mode")
+        logger.warning("⚠️  Loan eligibility model not found — heuristic scoring mode")
 
     # Connect to RabbitMQ
     await rmq.connect()
@@ -104,7 +115,7 @@ app = FastAPI(
         "idempotent transactions, rule-based fraud detection, hash-chained audit logs, "
         "Redis caching, rate limiting, PDF statement generation, and event-driven notifications."
     ),
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
@@ -142,6 +153,9 @@ app.include_router(analytics.router)
 app.include_router(statement.router)
 app.include_router(websocket.router)
 app.include_router(loans.router)
+app.include_router(aml.router)
+app.include_router(whitelist.router)
+app.include_router(admin_settings.router)
 
 if settings.ENABLE_CHAOS_ENDPOINTS:
     app.include_router(chaos.router)

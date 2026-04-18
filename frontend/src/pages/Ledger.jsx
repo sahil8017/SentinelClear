@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import apiClient from '../lib/axios';
 import { toast } from 'sonner';
 import { formatINR, formatIST } from '../lib/format';
+import { useMinLoadingTime } from '../lib/useMinLoadingTime';
 import { Skeleton } from '../components/ui/Skeleton';
 import { getRoleFromToken } from '../lib/auth';
 
@@ -52,6 +53,8 @@ export function Ledger() {
       setIsLoading(false);
     }
   };
+
+  const showLoading = useMinLoadingTime(isLoading, 1200);
 
   const handleExport = async () => {
     if (!account) {
@@ -200,12 +203,13 @@ export function Ledger() {
                 <th className="py-5 px-8 text-[10px] uppercase tracking-[0.2em] font-black text-zinc-400">Timestamp Vector</th>
                 <th className="py-5 px-8 text-[10px] uppercase tracking-[0.2em] font-black text-zinc-400">Counterparty</th>
                 <th className="py-5 px-8 text-[10px] uppercase tracking-[0.2em] font-black text-zinc-400">Direction</th>
+                <th className="py-5 px-8 text-[10px] uppercase tracking-[0.2em] font-black text-zinc-400">Memo</th>
                 <th className="py-5 px-8 text-[10px] uppercase tracking-[0.2em] font-black text-zinc-400">Risk Score</th>
                 <th className="py-5 px-8 text-[10px] uppercase tracking-[0.2em] font-black text-zinc-400 text-right">Commit Value</th>
               </tr>
             </thead>
             <tbody className="text-sm">
-              {isLoading ? (
+              {showLoading ? (
                 [1,2,3,4,5,6].map(i => (
                   <tr key={i} className="border-b border-zinc-100 dark:border-white/5">
                     <td className="py-5 px-8"><Skeleton className="h-4 w-32" /></td>
@@ -234,7 +238,7 @@ export function Ledger() {
                   </tr>
                 ))
               ) : transactions.length === 0 ? (
-                <tr><td colSpan="5" className="py-20 text-center text-zinc-500 dark:text-zinc-400 font-black uppercase tracking-widest text-[11px]">No ledger entries detected. Execute a transfer to begin.</td></tr>
+                <tr><td colSpan="6" className="py-20 text-center text-zinc-500 dark:text-zinc-400 font-black uppercase tracking-widest text-[11px]">No ledger entries detected. Execute a transfer to begin.</td></tr>
               ) : (
                 transactions.map((tx) => {
                   const isSender = tx.sender_account_id === account?.id;
@@ -262,6 +266,11 @@ export function Ledger() {
                           </span>
                           {getStatusBadge(tx.status)}
                         </div>
+                      </td>
+                      <td className="py-5 px-8">
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium max-w-[140px] truncate inline-block" title={tx.reference || 'N/A'}>
+                          {tx.reference || '—'}
+                        </span>
                       </td>
                       <td className="py-5 px-8">
                       <div className="flex items-center gap-2">

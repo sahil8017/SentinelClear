@@ -27,10 +27,12 @@ tests/.coverage
 .idea/
 *.swp
 *.DS_Store
+Thumbs.db
 
 # Data / Models
 dataset/
 model/*.pkl
+app/ml/data/
 
 # Agents / Auto-generated
 .agents/
@@ -40,6 +42,16 @@ model/*.pkl
 service-account.json
 *.json.key
 
+# Test artifacts
+_test_*.py
+*.pdf
+
 # Frontend build artifacts
 frontend/dist/
 frontend/node_modules/
+
+# Log / output files
+*.log
+*_output.txt
+*_results.txt
+api-gateway-logs.txt

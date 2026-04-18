@@ -18,12 +18,17 @@ async def dispatch_webhook(user_id: int, payload: dict):
     """
     Looks up webhook target URLs for the given user and dispatches
     the payload asynchronously via HTTP POST.
+    Best-effort: failures here must never crash the calling transfer/loan flow.
     """
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(WebhookEndpoint).where(WebhookEndpoint.user_id == user_id)
-        )
-        endpoints = result.scalars().all()
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(WebhookEndpoint).where(WebhookEndpoint.user_id == user_id)
+            )
+            endpoints = result.scalars().all()
+    except Exception as e:
+        logger.warning(f"Webhook dispatch skipped — DB lookup failed: {e}")
+        return
         
     if not endpoints:
         return

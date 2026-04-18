@@ -33,12 +33,28 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(120), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
+    transaction_pin_hash = Column(String(255), nullable=True)  # Secure PIN for Step-Up Auth
     role = Column(String(20), default="USER", nullable=False)
     kyc_status = Column(String(20), default="UNVERIFIED", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    accounts = relationship("Account", back_populates="owner", lazy="selectin")
+    # ── User Profile Onboarding ──
+    full_name = Column(String(100), nullable=True)
+    occupation = Column(String(100), nullable=True)
+    profile_complete = Column(Boolean, default=False, nullable=False)
+
+    # ── UPI Safety: Vulnerable Group Protection ──
+    date_of_birth = Column(Date, nullable=True)            # Age ≥ 70 triggers guardian approval
+    is_disabled = Column(Boolean, default=False, nullable=False)  # Accessibility flag
+    trusted_person_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Guardian for approvals
+
+    # ── UPI Safety: Emergency Kill Switch ──
+    kill_switch_active = Column(Boolean, default=False, nullable=False)
+    kill_switch_activated_at = Column(DateTime, nullable=True)
+
+    accounts = relationship("Account", back_populates="owner", lazy="selectin", foreign_keys="Account.owner_id")
     beneficiaries = relationship("Beneficiary", back_populates="user", lazy="selectin")
+    trusted_person = relationship("User", remote_side="User.id", foreign_keys=[trusted_person_id])
 
 
 # ────────────────────────────── Beneficiary ──────────────────────────────
@@ -73,7 +89,12 @@ class Account(Base):
     balance = Column(Float, default=0.0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    owner = relationship("User", back_populates="accounts")
+    # ── UPI Safety: Annual Receiving Limit ──
+    annual_received = Column(Float, default=0.0, nullable=False)  # Running tally for current FY
+    annual_received_fy = Column(String(7), nullable=True)         # e.g. "2025-26"
+    is_frozen = Column(Boolean, default=False, nullable=False)    # Frozen when ₹25L limit breached
+
+    owner = relationship("User", back_populates="accounts", foreign_keys=[owner_id])
 
 
 # ────────────────────────────── Transfer ──────────────────────────────
@@ -87,17 +108,26 @@ class Transfer(Base):
     receiver_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
     amount = Column(Float, nullable=False)
     status = Column(
-        SAEnum("COMPLETED", "FLAGGED", "FAILED", name="transfer_status"),
+        SAEnum("COMPLETED", "FLAGGED", "FAILED", "PENDING_AUTH", "PENDING_APPROVAL", "PAUSED", "PENDING_GUARDIAN", name="transfer_status"),
         default="COMPLETED",
         nullable=False,
     )
     risk_score = Column(Float, nullable=True, default=None)
     ml_risk_score = Column(Float, nullable=True, default=None)  # Raw ML model P(fraud)
     fraud_rules_triggered = Column(Text, nullable=True)  # JSON list of triggered rule names
+    source_ip = Column(String(45), nullable=True)         # Client IP for geo-velocity
+    source_city = Column(String(100), nullable=True)      # Resolved city from IP
+    reference = Column(String(255), nullable=True)         # User-provided memo/reference
+    
+    # Compliance & Maker-Checker Attributes
+    auth_challenge_id = Column(String(36), nullable=True) # Step-Up UUID
+    checker_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sender_account = relationship("Account", foreign_keys=[sender_account_id])
     receiver_account = relationship("Account", foreign_keys=[receiver_account_id])
+    checker = relationship("User", foreign_keys=[checker_id])
 
     __table_args__ = (
         Index("ix_transfers_sender", "sender_account_id"),
@@ -326,3 +356,95 @@ class LoanRepayment(Base):
 
     loan = relationship("Loan", foreign_keys=[loan_id])
 
+
+# ────────────────────────────── Credit Profile (CIBIL-Like) ──────────────────────────────
+
+
+class CreditProfile(Base):
+    """Stores financial indicators and ML-computed credit score for each user.
+
+    Inspired by CIBIL TransUnion scoring (300–900 range) and RBI
+    responsible-lending norms.  Updated each time a user requests
+    a credit assessment or applies for a loan.
+    """
+    __tablename__ = "credit_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+
+    # ── Financial Indicators ──
+    monthly_income = Column(Float, nullable=False, default=0.0)
+    existing_liabilities = Column(Float, nullable=False, default=0.0)      # Total existing EMI/debt per month
+    total_assets = Column(Float, nullable=False, default=0.0)               # Savings, investments, property value
+    employment_type = Column(String(30), nullable=False, default="salaried") # salaried, self_employed, freelancer, unemployed
+    employment_years = Column(Float, nullable=False, default=0.0)           # Years of employment / business tenure
+    age = Column(Integer, nullable=False, default=25)
+    dependents = Column(Integer, nullable=False, default=0)
+    residence_type = Column(String(20), nullable=False, default="rented")   # owned, rented, parental
+
+    # ── Behavioural Scores (derived from transaction history) ──
+    repayment_history_score = Column(Float, nullable=False, default=0.5)   # 0.0 (worst) to 1.0 (perfect)
+    account_age_months = Column(Integer, nullable=False, default=0)         # Months since first account opening
+    avg_monthly_balance = Column(Float, nullable=False, default=0.0)        # Average balance over last 6 months
+    num_previous_loans = Column(Integer, nullable=False, default=0)
+    num_defaults = Column(Integer, nullable=False, default=0)
+    transaction_regularity = Column(Float, nullable=False, default=0.5)    # 0.0 to 1.0
+
+    # ── Computed Scores ──
+    credit_score = Column(Integer, nullable=False, default=650)            # CIBIL-like: 300–900
+    foir = Column(Float, nullable=False, default=0.0)                      # Fixed Obligation to Income Ratio
+    debt_to_income = Column(Float, nullable=False, default=0.0)            # Total debt / annual income
+
+    # ── ML Prediction Results (cached from last assessment) ──
+    ml_eligibility_score = Column(Float, nullable=True)                    # P(eligible) from ML model
+    ml_risk_category = Column(String(20), nullable=True)                   # LOW, MEDIUM, HIGH, VERY_HIGH
+    ml_explanation = Column(Text, nullable=True)                           # JSON XAI output
+    last_assessed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        Index("ix_credit_profile_user", "user_id", unique=True),
+    )
+
+
+# ────────────────────────────── UPI Safety: Whitelisted Contact ──────────────────────────────
+
+
+class WhitelistedContact(Base):
+    """Contacts whitelisted by a user to bypass the ₹10K transaction pause.
+
+    Users can add family members or frequent recipients so their
+    transfers are not paused for verification.
+    """
+    __tablename__ = "whitelisted_contacts"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    contact_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False, index=True)
+    nickname = Column(String(100), nullable=True)  # Optional friendly name
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+    contact_account = relationship("Account", foreign_keys=[contact_account_id])
+
+    __table_args__ = (
+        Index("ix_whitelist_user_contact", "user_id", "contact_account_id", unique=True),
+    )
+
+
+# ────────────────────────────── Settings ──────────────────────────────
+
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value_type = Column(String(20), nullable=False) # 'int', 'float', 'bool', 'str'
+    value = Column(Text, nullable=False)
+    description = Column(String(255), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

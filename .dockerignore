@@ -17,11 +17,24 @@ frontend/.vite/
 *.pem
 *.key
 
-# IDE
+# IDE / OS
 .vscode/
 .idea/
 *.swp
 *.swo
+*.DS_Store
+
+# Data / Models
+*.pkl
+app/ml/data/
+
+# Tests
+tests/
+frontend/tests/
+_test_*
+
+# Documentation
+*.pdf
 
 # Git
 .git/

@@ -322,5 +322,58 @@ async def check_recipient_concentration(
         rule_name="recipient_concentration",
         triggered=True,
         score=min(score, 1.0),
-        reason=f"{count} transfers to same recipient in {window_seconds}s exceeds limit of {max_transfers}",
+        reason=f"Sent {count} transfers to recipient {receiver_account_id} in {window_seconds}s (max {max_transfers})",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RULE 7: Impossible Travel — Geolocation velocity anomaly
+# ═══════════════════════════════════════════════════════════════════
+
+async def check_impossible_travel_rule(
+    db: AsyncSession,
+    sender_account_id: str,
+    current_city: str,
+) -> RuleResult:
+    """Flag transfers from physically impossible geographic locations."""
+    if not current_city:
+        return RuleResult(rule_name="impossible_travel", triggered=False, score=0.0, reason="No current city data")
+
+    from app.services.geo import check_impossible_travel
+    from datetime import datetime
+
+    # Get the last successful transfer from this user
+    result = await db.execute(
+        select(Transfer)
+        .where(Transfer.sender_account_id == sender_account_id)
+        .where(Transfer.source_city.isnot(None))
+        .order_by(Transfer.created_at.desc())
+        .limit(1)
+    )
+    last_transfer = result.scalar_one_or_none()
+
+    if not last_transfer or not last_transfer.source_city:
+        return RuleResult(rule_name="impossible_travel", triggered=False, score=0.0, reason="No previous location history")
+
+    time_delta = (datetime.utcnow() - last_transfer.created_at).total_seconds()
+    
+    geo_res = check_impossible_travel(
+        current_city=current_city,
+        previous_city=last_transfer.source_city,
+        time_delta_seconds=time_delta
+    )
+
+    if not geo_res["is_impossible"]:
+        return RuleResult(
+            rule_name="impossible_travel",
+            triggered=False,
+            score=0.0,
+            reason=f"Plausible travel: {geo_res['distance_km']}km in {geo_res['time_gap_minutes']} mins",
+        )
+
+    return RuleResult(
+        rule_name="impossible_travel",
+        triggered=True,
+        score=0.99,  # High confidence critical block
+        reason=f"Impossible Travel: {last_transfer.source_city} → {current_city} in {geo_res['time_gap_minutes']} mins (req: {geo_res['required_speed_kmh']} km/h, max: 1000 km/h)",
     )

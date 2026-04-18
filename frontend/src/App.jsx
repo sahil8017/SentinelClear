@@ -13,22 +13,25 @@ import { FraudAnalytics } from './pages/FraudAnalytics';
 import { OpsDashboard } from './pages/OpsDashboard';
 import { ChaosPanel } from './pages/ChaosPanel';
 import { DevTools } from './pages/DevTools';
-import { DeveloperTools } from './pages/DeveloperTools';
+import { AMLGraph } from './pages/AMLGraph';
+import { MakerChecker } from './pages/MakerChecker';
+import { AuditLedger } from './pages/AuditLedger';
+
 import { CreditHub } from './pages/CreditHub';
+import { UPISafety } from './pages/UPISafety';
+import { ProfileSetup } from './pages/ProfileSetup';
+import { AccountProfile } from './pages/AccountProfile';
 import { CommandPalette } from './components/CommandPalette';
 
-// Master Documentation Imports (Exhaustive Suite)
+// Master Documentation Imports (Restructured Plaid-Style)
 import { DocsLayout } from './pages/docs/DocsLayout';
 import Introduction from './pages/docs/Introduction';
-import SdkSetup from './pages/docs/SdkSetup';
+import Quickstart from './pages/docs/Quickstart';
+import LedgerArchitecture from './pages/docs/LedgerArchitecture';
+import RiskEngine from './pages/docs/RiskEngine';
+import UPISafetyDocs from './pages/docs/UPISafety';
+import CreditHubDocs from './pages/docs/CreditHub'; // aliased to avoid collision with main CreditHub
 import ApiReference from './pages/docs/ApiReference';
-import Idempotency from './pages/docs/Idempotency';
-import LedgerPrimitives from './pages/docs/LedgerPrimitives';
-import SettlementLogic from './pages/docs/SettlementLogic';
-import FraudHeuristics from './pages/docs/FraudHeuristics';
-import AuditChain from './pages/docs/AuditChain';
-import Observability from './pages/docs/Observability';
-import Deployment from './pages/docs/Deployment';
 
 export const ThemeContext = createContext();
 
@@ -66,19 +69,16 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         
-        {/* Exhaustive Documentation Nested Routes */}
+        {/* Documentation Restructured Routes */}
         <Route path="/docs" element={<DocsLayout />}>
           <Route index element={<Navigate to="introduction" replace />} />
           <Route path="introduction" element={<Introduction />} />
-          <Route path="sdk-setup" element={<SdkSetup />} />
+          <Route path="quickstart" element={<Quickstart />} />
+          <Route path="ledger-architecture" element={<LedgerArchitecture />} />
+          <Route path="risk-engine" element={<RiskEngine />} />
+          <Route path="upi-safety" element={<UPISafetyDocs />} />
+          <Route path="credit-hub" element={<CreditHubDocs />} />
           <Route path="api-reference" element={<ApiReference />} />
-          <Route path="idempotency" element={<Idempotency />} />
-          <Route path="ledger-primitives" element={<LedgerPrimitives />} />
-          <Route path="settlement-logic" element={<SettlementLogic />} />
-          <Route path="fraud-heuristics" element={<FraudHeuristics />} />
-          <Route path="audit-chain" element={<AuditChain />} />
-          <Route path="observability" element={<Observability />} />
-          <Route path="deployment" element={<Deployment />} />
         </Route>
 
         <Route path="/login" element={<Login />} />
@@ -86,13 +86,15 @@ export default function App() {
         
         {/* CONSUMER TIER: Protected Routes */}
         <Route path="/app" element={<ProtectedRoute />}>
+          <Route path="profile-setup" element={<ProfileSetup />} />
           <Route element={<Layout />}>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="transfer" element={<Transfer />} />
             <Route path="ledger" element={<Ledger />} />
-            <Route path="developers" element={<DeveloperTools />} />
             <Route path="credit" element={<CreditHub />} />
+            <Route path="upi-safety" element={<UPISafety />} />
+            <Route path="account" element={<AccountProfile />} />
           </Route>
         </Route>
 
@@ -104,6 +106,9 @@ export default function App() {
             <Route path="ops" element={<OpsDashboard />} />
             <Route path="chaos" element={<ChaosPanel />} />
             <Route path="tools" element={<DevTools />} />
+            <Route path="maker-checker" element={<MakerChecker />} />
+            <Route path="aml-graph" element={<AMLGraph />} />
+            <Route path="audit" element={<AuditLedger />} />
           </Route>
         </Route>
 
