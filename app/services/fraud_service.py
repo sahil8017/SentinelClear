@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
 from sqlalchemy import select, func, and_
@@ -15,6 +15,7 @@ class RiskReport(TypedDict):
     is_blocked: bool
     block_reason: str
     risk_score: float
+    ml_risk_score: float
     rules_triggered: list[str]
 
 
@@ -47,18 +48,17 @@ async def evaluate_transfer_risk(
         }
 
     # 2. PAN Mandate (Section 114B)
-    # [SANDBOX BYPASS] Commented out to allow ML model to test large amounts without hard-failing early
-    # if amount >= 50000 and user.kyc_status != "PAN_VERIFIED":
-    #     return {
-    #         "is_blocked": True,
-    #         "block_reason": "PAN mapping is required for transactions of ₹50,000 or greater (Section 114B).",
-    #         "risk_score": 1.0,
-    #         "ml_risk_score": 0.0,
-    #         "rules_triggered": ["PAN_MANDATE"]
-    #     }
+    if amount >= 50000 and user.kyc_status != "PAN_VERIFIED":
+        return {
+            "is_blocked": True,
+            "block_reason": "PAN mapping is required for transactions of ₹50,000 or greater (Section 114B).",
+            "risk_score": 1.0,
+            "ml_risk_score": 0.0,
+            "rules_triggered": ["PAN_MANDATE"]
+        }
 
     # Query 24-hour transfers for Velocity and Volume
-    twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+    twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
     
     recent_transfers_stmt = select(
         func.sum(Transfer.amount),
@@ -80,18 +80,17 @@ async def evaluate_transfer_risk(
         rolling_vel = row_vel or 0
 
     # 3. UPI Daily Volume Limit (₹1,00,000)
-    # [SANDBOX BYPASS] Commented out to allow ML model testing
-    # if (rolling_vol + amount) > 100000:
-    #     logger.warning(
-    #         "Transfer blocked by NPCI Velocity Rule [DAILY_VOLUME_NPCI]: Account %s, amount=₹%.2f, rolling_vol=₹%.2f",
-    #         sender_account_id, amount, rolling_vol
-    #     )
-    #     return {
-    #         "is_blocked": True,
-    #         "block_reason": f"Transfer Blocked: You have exceeded the NPCI daily limit of ₹1,00,000. (Current rolling volume: ₹{rolling_vol:,.2f})",
-    #         "risk_score": 1.0,
-    #         "rules_triggered": ["DAILY_VOLUME_NPCI"]
-    #     }
+    if (rolling_vol + amount) > 100000:
+        logger.warning(
+            "Transfer blocked by NPCI Velocity Rule [DAILY_VOLUME_NPCI]: Account %s, amount=₹%.2f, rolling_vol=₹%.2f",
+            sender_account_id, amount, rolling_vol
+        )
+        return {
+            "is_blocked": True,
+            "block_reason": f"Transfer Blocked: You have exceeded the NPCI daily limit of ₹1,00,000. (Current rolling volume: ₹{rolling_vol:,.2f})",
+            "risk_score": 1.0,
+            "rules_triggered": ["DAILY_VOLUME_NPCI"]
+        }
 
     # 4. UPI Daily Velocity Limit (20 txns)
     if rolling_vel >= 20:
@@ -175,7 +174,7 @@ async def evaluate_transfer_risk(
     
     # 1. Split-Structuring Detection (Smurfing)
     # 3 rapid transfers of ≈19k+ within 10 minutes to same recipient
-    ten_mins_ago = datetime.utcnow() - timedelta(minutes=10)
+    ten_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
     rapid_transfers_stmt = select(func.count(Transfer.id)).where(
         and_(
             Transfer.sender_account_id == sender_account_id,

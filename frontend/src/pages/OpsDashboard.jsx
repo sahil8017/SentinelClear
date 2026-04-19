@@ -125,10 +125,9 @@ export function OpsDashboard() {
       if (failed.length > 0) {
         toast.warning(`${rules.length - failed.length}/${rules.length} rules deployed. ${failed.length} failed.`);
       } else {
-        toast.success('All parameters deployed to consensus nodes.');
+        toast.success('All parameters deployed.');
       }
 
-      // Re-fetch to confirm
       await fetchRules();
     } catch (err) {
       toast.error('Failed to deploy parameters');
@@ -138,54 +137,54 @@ export function OpsDashboard() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
+    <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 fade-in duration-500 pb-20 px-4 md:px-0">
       <div>
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white">Operations Matrix</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2 max-w-lg">
-          Dynamic runtime adjustments for SentinelClear logic flows. Modifications apply instantly to active ledger nodes.
+        <h1 className="text-[32px] md:text-[40px] font-light tracking-tight text-[#0A2540] m-0">Operations Matrix</h1>
+        <p className="text-[14px] text-[#425466] mt-2 max-w-lg leading-[1.6]">
+          Dynamic runtime adjustments for fraud rules and live incident monitoring.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
 
         {/* Rule Config Panel */}
-        <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 shadow-sm dark:shadow-none space-y-8">
-          <div className="border-b border-zinc-100 dark:border-white/5 pb-4">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-1">Heuristic Parameters</h3>
-            <p className="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold">Adjust threshold models</p>
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 shadow-[0_2px_5px_rgba(0,0,0,0.02)] space-y-6">
+          <div className="border-b border-[#e3e8ee] pb-4">
+            <h3 className="text-[16px] font-medium text-[#0A2540] mb-1">Heuristic Parameters</h3>
+            <p className="text-[12px] text-[#6B7C93]">Adjust threshold models</p>
           </div>
 
           {rulesLoading ? (
             <div className="space-y-6">
               {[1,2,3,4].map(i => (
                 <div key={i} className="space-y-3">
-                  <div className="h-4 bg-zinc-100 dark:bg-white/5 animate-pulse rounded w-2/3"></div>
-                  <div className="h-2 bg-zinc-100 dark:bg-white/5 animate-pulse rounded"></div>
+                  <div className="h-4 bg-[#f6f9fc] animate-pulse rounded w-2/3"></div>
+                  <div className="h-2 bg-[#f6f9fc] animate-pulse rounded"></div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {rules.map((rule) => (
-                <div key={rule.rule_name} className="space-y-3">
+                <div key={rule.rule_name} className="space-y-2 p-4 bg-[#f6f9fc] rounded-[8px] border border-[#e3e8ee]">
                   <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <button
                         onClick={() => handleRuleChange(rule.rule_name, 'enabled', !rule.enabled)}
-                        className={`w-8 h-4 rounded-full transition-all relative ${rule.enabled ? 'bg-indigo-500' : 'bg-zinc-300 dark:bg-zinc-700'}`}
+                        className={`w-9 h-5 rounded-full transition-all relative ${rule.enabled ? 'bg-[#635BFF]' : 'bg-[#e3e8ee]'}`}
                       >
-                        <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all shadow-sm ${rule.enabled ? 'left-4.5 right-0.5' : 'left-0.5'}`}
-                          style={{ left: rule.enabled ? 'calc(100% - 14px)' : '2px' }}
+                        <div className="w-3.5 h-3.5 bg-white rounded-full absolute top-[3px] transition-all shadow-sm"
+                          style={{ left: rule.enabled ? 'calc(100% - 17px)' : '3px' }}
                         ></div>
                       </button>
-                      <label className="text-[11px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 font-bold">
+                      <label className="text-[13px] text-[#0A2540] font-medium capitalize">
                         {rule.rule_name.replace(/_/g, ' ')}
                       </label>
                     </div>
-                    <span className={`text-[12px] font-mono font-bold px-2.5 py-1 rounded-md ${
+                    <span className={`text-[12px] font-mono font-semibold px-2 py-0.5 rounded ${
                       rule.enabled
-                        ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10'
-                        : 'text-zinc-400 bg-zinc-100 dark:bg-zinc-800'
+                        ? 'text-[#635BFF] bg-white border border-[#e3e8ee]'
+                        : 'text-[#6B7C93] bg-[#e3e8ee]'
                     }`}>
                       {rule.weight.toFixed(1)}x
                     </span>
@@ -195,22 +194,22 @@ export function OpsDashboard() {
                     value={rule.weight}
                     disabled={!rule.enabled}
                     onChange={(e) => handleRuleChange(rule.rule_name, 'weight', parseFloat(e.target.value))}
-                    className="w-full h-1.5 bg-zinc-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="w-full h-1.5 bg-[#e3e8ee] rounded-lg appearance-none cursor-pointer accent-[#635BFF] disabled:opacity-30 disabled:cursor-not-allowed"
                   />
                   {rule.threshold_value !== null && rule.threshold_value !== undefined && (
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest">Threshold:</span>
+                      <span className="text-[11px] text-[#6B7C93] font-medium">Threshold:</span>
                       <input
                         type="number"
                         value={rule.threshold_value}
                         disabled={!rule.enabled}
                         onChange={(e) => handleRuleChange(rule.rule_name, 'threshold_value', parseFloat(e.target.value))}
-                        className="w-24 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-white/5 rounded-md px-2 py-1 text-[11px] font-mono outline-none focus:border-indigo-500 disabled:opacity-30"
+                        className="w-24 bg-white border border-[#e3e8ee] rounded-[6px] px-2 py-1 text-[12px] font-mono outline-none focus:border-[#635BFF] disabled:opacity-30 text-[#0A2540]"
                       />
                     </div>
                   )}
                   {rule.description && (
-                    <p className="text-[9px] text-zinc-400 font-medium">{rule.description}</p>
+                    <p className="text-[11px] text-[#6B7C93]">{rule.description}</p>
                   )}
                 </div>
               ))}
@@ -220,89 +219,88 @@ export function OpsDashboard() {
           <button
             onClick={handleSaveConfig}
             disabled={isSaving || rulesLoading}
-            className="w-full py-4 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-black font-bold rounded-xl text-[12px] uppercase tracking-widest shadow-sm transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[14px] transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isSaving ? (
-              <><span className="w-4 h-4 border-2 border-white/30 dark:border-black/30 border-t-white dark:border-t-black rounded-full animate-spin"></span> Deploying...</>
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Deploying...</>
             ) : (
-              'Deploy New Parameters to Network'
+              'Deploy Parameters'
             )}
           </button>
         </div>
 
         {/* Live Event Stream Panel */}
-        <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 shadow-sm dark:shadow-none flex flex-col h-[600px]">
-          <div className="flex justify-between items-center mb-6 border-b border-zinc-100 dark:border-white/5 pb-4">
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 shadow-[0_2px_5px_rgba(0,0,0,0.02)] flex flex-col h-[600px]">
+          <div className="flex justify-between items-center mb-4 border-b border-[#e3e8ee] pb-4">
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-1">Live Sentinel Incident Stream</h3>
-              <p className="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold flex items-center gap-1.5">
+              <h3 className="text-[16px] font-medium text-[#0A2540] mb-1">Live Incident Stream</h3>
+              <p className="text-[12px] text-[#6B7C93] flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${
-                  wsStatus === 'connected' ? 'bg-green-500 animate-pulse' :
-                  wsStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
+                  wsStatus === 'connected' ? 'bg-[#0CBF4C]' :
+                  wsStatus === 'connecting' ? 'bg-[#ff6118] animate-pulse' : 'bg-[#df1b41]'
                 }`}></span>
-                {wsStatus === 'connected' ? 'WSS Connected' :
+                {wsStatus === 'connected' ? 'WebSocket Connected' :
                  wsStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
               </p>
             </div>
             <button
               onClick={() => setAlerts([])}
-              className="text-[10px] text-zinc-400 hover:text-zinc-600 font-bold uppercase tracking-widest transition-colors"
+              className="text-[12px] text-[#6B7C93] hover:text-[#0A2540] font-medium transition-colors"
             >
               Clear
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 hide-scrollbar pr-2">
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-hide">
             {alerts.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-[12px] text-zinc-400 font-medium space-y-3">
-                <span className="material-symbols-outlined text-4xl opacity-50">wifi_tethering</span>
-                <span>Awaiting active systemic events...</span>
-                <span className="text-[10px] text-zinc-300 dark:text-zinc-600">Make transfers to generate real-time alerts</span>
+              <div className="h-full flex flex-col items-center justify-center text-[13px] text-[#6B7C93] space-y-3">
+                <span className="material-symbols-outlined text-[40px] text-[#e3e8ee]">wifi_tethering</span>
+                <span>Awaiting incidents...</span>
+                <span className="text-[12px] text-[#6B7C93]/60">Make transfers to generate real-time alerts</span>
               </div>
             ) : (
               alerts.map((alert, i) => (
-                <div key={i} className="p-4 border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/5 rounded-xl flex justify-between items-center animate-in slide-in-from-top-2">
-                  <div className="space-y-1.5">
-                    <span className="text-[10px] font-mono text-red-600 dark:text-red-400 font-bold uppercase tracking-widest">
+                <div key={i} className="p-4 border border-[#ffcdcd] bg-[#fff5f5] rounded-[8px] flex justify-between items-start animate-in slide-in-from-top-2 gap-4">
+                  <div className="space-y-1.5 min-w-0">
+                    <span className="text-[11px] font-mono text-[#df1b41] font-semibold">
                        TxID: {alert.transfer_id || alert.transaction_id || 'unknown'}
                     </span>
-                    <p className="text-sm font-medium text-zinc-900 dark:text-white">
-                       Critical Risk Detected: <span className="text-red-500 font-bold">{((alert.risk_score || alert.score || 0.85)*100).toFixed(0)}%</span>
+                    <p className="text-[13px] font-medium text-[#0A2540]">
+                       Risk: <span className="text-[#df1b41] font-semibold">{((alert.risk_score || alert.score || 0.85)*100).toFixed(0)}%</span>
                     </p>
                     {alert.rules_triggered && (
                       <div className="flex flex-col gap-2 mt-2">
                         <div className="flex flex-wrap gap-1">
                           {(Array.isArray(alert.rules_triggered) ? alert.rules_triggered : []).filter(r => typeof r === 'string').map((rule, j) => (
-                            <span key={j} className="px-1.5 py-0.5 bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 rounded text-[8px] font-bold uppercase transition-colors">
+                            <span key={j} className="px-1.5 py-0.5 bg-[#df1b41]/10 text-[#df1b41] rounded text-[9px] font-bold uppercase">
                               {rule.replace(/_/g, ' ')}
                             </span>
                           ))}
                         </div>
                         {(Array.isArray(alert.rules_triggered) ? alert.rules_triggered : []).filter(r => typeof r === 'object' && r?.xai_factor).map((xai, j) => (
-                          <div key={j} className="w-full bg-zinc-900 dark:bg-black rounded-lg p-3 border border-red-500/50 relative overflow-hidden group shadow-lg">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]"></div>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1.5">
-                              <span className="material-symbols-outlined text-[14px] text-indigo-400">psychology</span>
-                              AI Threat Matrix Insight
+                          <div key={j} className="w-full bg-[#0A2540] rounded-[6px] p-3 border-l-2 border-[#635BFF]">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7C93] mb-0.5 flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[12px] text-[#635BFF]">psychology</span>
+                              AI Insight
                             </p>
-                            <p className="text-sm font-bold text-white mb-0.5">{xai.xai_factor}</p>
-                            <p className="text-[11px] text-zinc-400 font-medium leading-relaxed">{xai.xai_detail}</p>
+                            <p className="text-[13px] font-medium text-white mb-0.5">{xai.xai_factor}</p>
+                            <p className="text-[11px] text-[#6B7C93]">{xai.xai_detail}</p>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    <span className="material-symbols-outlined text-red-500 text-2xl">gpp_maybe</span>
+                    <span className="material-symbols-outlined text-[#df1b41] text-[20px]">gpp_maybe</span>
                     {(alert.transfer_id || alert.transaction_id) && (
                       <a 
                         href={`/api/fraud/str/${alert.transfer_id || alert.transaction_id}`} 
                         target="_blank"
                         rel="noreferrer"
-                        className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white rounded text-[9px] font-bold uppercase tracking-widest transition-colors flex items-center gap-1 shadow-sm"
+                        className="px-2 py-1 bg-[#df1b41] hover:bg-[#c91839] text-white rounded text-[10px] font-semibold transition-colors flex items-center gap-1"
                       >
                         <span className="material-symbols-outlined text-[12px]">download</span>
-                        Export STR
+                        STR
                       </a>
                     )}
                   </div>
@@ -314,26 +312,26 @@ export function OpsDashboard() {
       </div>
 
       {/* Credit Approvals Panel */}
-      <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 shadow-sm dark:shadow-none">
-          <div className="border-b border-zinc-100 dark:border-white/5 pb-4 mb-6">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-1">Credit Approvals</h3>
-            <p className="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold">Review Pending Loan Disbursals</p>
+      <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
+          <div className="border-b border-[#e3e8ee] pb-4 mb-6">
+            <h3 className="text-[16px] font-medium text-[#0A2540] mb-1">Credit Approvals</h3>
+            <p className="text-[12px] text-[#6B7C93]">Review Pending Loan Disbursals</p>
           </div>
           
           <div className="space-y-4">
              {pendingLoans.length === 0 ? (
-                <p className="text-[12px] text-zinc-400 font-medium">No pending loans requiring approval.</p>
+                <p className="text-[13px] text-[#6B7C93]">No pending loans requiring approval.</p>
              ) : (
                 pendingLoans.map(loan => (
-                   <div key={loan.id} className="flex flex-col md:flex-row justify-between items-center p-4 border border-zinc-200 dark:border-white/5 rounded-xl bg-zinc-50 dark:bg-black/20 gap-4">
+                   <div key={loan.id} className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border border-[#e3e8ee] rounded-[8px] bg-[#f6f9fc] gap-4">
                       <div>
-                         <span className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">User ID: {loan.user_id}</span>
-                         <h4 className="text-xl font-black text-slate-900 dark:text-white mt-1">₹{loan.principal_amount.toLocaleString()}</h4>
-                         <p className="text-[11px] font-mono text-zinc-500 mt-1">{loan.interest_rate}% Fixed Interest</p>
+                         <span className="text-[11px] text-[#6B7C93] uppercase font-bold tracking-wider">User: {loan.user_id}</span>
+                         <h4 className="text-[22px] font-light text-[#0A2540] mt-1">₹{loan.principal_amount.toLocaleString()}</h4>
+                         <p className="text-[12px] font-mono text-[#6B7C93] mt-1">{loan.interest_rate}% Fixed Interest</p>
                       </div>
                       <div className="flex gap-2 w-full md:w-auto">
-                         <button onClick={() => handleApproveLoan(loan.id)} className="flex-1 px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-emerald-500 transition-colors">Approve</button>
-                         <button onClick={() => handleRejectLoan(loan.id)} className="flex-1 px-6 py-2 bg-rose-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-rose-500 transition-colors">Reject</button>
+                         <button onClick={() => handleApproveLoan(loan.id)} className="flex-1 px-5 py-2 bg-[#0A2540] hover:bg-[#112F4E] text-white rounded-[6px] font-medium text-[13px] transition-colors">Approve</button>
+                         <button onClick={() => handleRejectLoan(loan.id)} className="flex-1 px-5 py-2 bg-white border border-[#df1b41] text-[#df1b41] hover:bg-[#fff5f5] rounded-[6px] font-medium text-[13px] transition-colors">Reject</button>
                       </div>
                    </div>
                 ))
@@ -373,30 +371,30 @@ function SystemSettingsPanel() {
   };
 
   return (
-    <div className="bg-white dark:bg-[#080808] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 shadow-sm dark:shadow-none">
-      <div className="border-b border-zinc-100 dark:border-white/5 pb-4 mb-6">
+    <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
+      <div className="border-b border-[#e3e8ee] pb-4 mb-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className="material-symbols-outlined text-indigo-500 text-lg">tune</span>
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-white">System Settings</h3>
+          <span className="material-symbols-outlined text-[#635BFF] text-[18px]">tune</span>
+          <h3 className="text-[16px] font-medium text-[#0A2540]">System Settings</h3>
         </div>
-        <p className="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold">Admin-configurable runtime limits & thresholds</p>
+        <p className="text-[12px] text-[#6B7C93]">Admin-configurable runtime limits & thresholds</p>
       </div>
 
       {loading ? (
         <div className="space-y-4">
           {[1,2,3].map(i => (
-            <div key={i} className="h-16 bg-zinc-100 dark:bg-white/5 animate-pulse rounded-xl" />
+            <div key={i} className="h-16 bg-[#f6f9fc] animate-pulse rounded-[8px]" />
           ))}
         </div>
       ) : settings.length === 0 ? (
-        <p className="text-[12px] text-zinc-400 font-medium">No settings configured yet.</p>
+        <p className="text-[13px] text-[#6B7C93]">No settings configured yet.</p>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {settings.map(s => (
-            <div key={s.key} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border border-zinc-200 dark:border-white/5 rounded-xl bg-zinc-50 dark:bg-black/20">
+            <div key={s.key} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border border-[#e3e8ee] rounded-[8px] bg-[#f6f9fc]">
               <div className="min-w-0">
-                <p className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-tight">{s.key.replace(/_/g, ' ')}</p>
-                <p className="text-[10px] text-zinc-500 mt-0.5 truncate">{s.description || 'No description'}</p>
+                <p className="text-[13px] font-semibold text-[#0A2540] capitalize">{s.key.replace(/_/g, ' ')}</p>
+                <p className="text-[11px] text-[#6B7C93] mt-0.5 truncate">{s.description || 'No description'}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <input
@@ -412,10 +410,10 @@ function SystemSettingsPanel() {
                       e.target.blur();
                     }
                   }}
-                  className="w-28 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm font-mono font-bold text-right outline-none focus:border-indigo-500 transition-all text-zinc-900 dark:text-white"
+                  className="w-28 bg-white border border-[#e3e8ee] rounded-[6px] px-3 py-2 text-[13px] font-mono font-medium text-right outline-none focus:border-[#635BFF] transition-all text-[#0A2540]"
                 />
                 {saving === s.key && (
-                  <span className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin shrink-0"></span>
+                  <span className="w-4 h-4 border-2 border-[#635BFF]/30 border-t-[#635BFF] rounded-full animate-spin shrink-0"></span>
                 )}
               </div>
             </div>

@@ -12,7 +12,7 @@ standalone as a CLI tool.
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,7 +120,7 @@ async def run_reconciliation(db: AsyncSession) -> dict:
 
     # Store the result
     log_entry = ReconciliationLog(
-        run_at=datetime.utcnow(),
+        run_at=datetime.now(timezone.utc),
         total_accounts=total_accounts,
         accounts_checked=accounts_checked,
         discrepancies_found=len(discrepancies),

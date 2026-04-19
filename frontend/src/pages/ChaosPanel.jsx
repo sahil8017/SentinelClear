@@ -7,7 +7,6 @@ export function ChaosPanel() {
   const [logs, setLogs] = useState([]);
   const [isInjecting, setIsInjecting] = useState(false);
   const [chaosStatus, setChaosStatus] = useState(null);
-  const [isPolling, setIsPolling] = useState(false);
   const [isStressing, setIsStressing] = useState(false);
   const [stressMetrics, setStressMetrics] = useState(null);
 
@@ -22,7 +21,7 @@ export function ChaosPanel() {
     return () => clearInterval(logInterval);
   }, []);
 
-  // Poll chaos status when injecting
+  // Poll chaos status
   const pollStatus = useCallback(async () => {
     try {
       const res = await apiClient.get('/admin/chaos/status', {
@@ -31,7 +30,6 @@ export function ChaosPanel() {
       setChaosStatus(res.data);
       return res.data;
     } catch (err) {
-      // Status endpoint might not require admin token, or chaos may be disabled
       console.error('Status poll failed', err);
       return null;
     }
@@ -42,7 +40,6 @@ export function ChaosPanel() {
     setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] WARN: Initiating Chaos Fault Injection...`]);
 
     try {
-      // Kill the database
       await apiClient.post('/admin/chaos/kill-db', null, {
         headers: { 'X-Admin-Token': 'change-me-in-production' }
       });
@@ -51,11 +48,8 @@ export function ChaosPanel() {
       setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] CRITICAL: All active queries will TIMEOUT`]);
       toast.error('DATABASE PARTITION ACTIVE — Connection pool drained.', { duration: 5000 });
 
-      // Poll status
-      setIsPolling(true);
       await pollStatus();
 
-      // Demonstrate that API calls fail
       setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] WARN: Testing API liveness...`]);
 
       setTimeout(async () => {
@@ -82,17 +76,16 @@ export function ChaosPanel() {
 
           await pollStatus();
         } catch (e) {
-          setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] ERRROR: Auto-recovery FAILED — manual intervention required`]);
+          setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] ERROR: Auto-recovery FAILED — manual intervention required`]);
           toast.error('Recovery failed. Run: docker unpause postgres-db');
         }
 
         setIsInjecting(false);
-        setIsPolling(false);
       }, 6000);
 
     } catch (err) {
       const detail = err.response?.data?.detail || 'Chaos endpoints are disabled in this deployment';
-      setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] ERRROR: ${detail}`]);
+      setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] ERROR: ${detail}`]);
 
       if (err.response?.status === 403) {
         toast.error('Chaos endpoints require ENABLE_CHAOS_ENDPOINTS=true in the backend config.', { duration: 5000 });
@@ -105,52 +98,49 @@ export function ChaosPanel() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
+    <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 fade-in duration-500 pb-20 px-4 md:px-0">
       <div>
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-4">
-          Chaos Simulator
-          <span className="text-[10px] uppercase tracking-widest text-red-600 dark:text-red-400 font-bold px-2 py-1 rounded bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 translate-y-[-2px]">High Privilege</span>
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2 max-w-lg">
-          Inject systemic faults, database partitions, and high-latency spikes to validate the resilience and auto-recovery capabilities. Execution of Concurrency constraints is also accessible here.
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-[32px] md:text-[40px] font-light tracking-tight text-[#0A2540] m-0">Chaos Simulator</h1>
+          <span className="text-[10px] uppercase tracking-wider text-[#df1b41] font-bold px-2 py-1 rounded bg-[#fff5f5] border border-[#ffcdcd]">High Privilege</span>
+        </div>
+        <p className="text-[14px] text-[#425466] mt-2 max-w-lg leading-[1.6]">
+          Inject database faults and run concurrency stress tests to validate system resilience.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-8">
-
+      <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-6 md:gap-8">
 
         {/* Injector Panel */}
-        <div className="bg-red-50 dark:bg-[#0c0505] border border-red-200 dark:border-red-500/20 rounded-2xl p-8 flex flex-col items-center justify-center space-y-8 relative overflow-hidden shadow-sm dark:shadow-none">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(239,68,68,0.1)_0%,transparent_70%)] pointer-events-none"></div>
-
-          <div className="text-center space-y-3 relative z-10 p-6 bg-white dark:bg-black rounded-2xl border border-red-100 dark:border-red-500/10 w-full max-w-sm">
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 transition-all ${isInjecting ? 'bg-red-500/20 animate-pulse' : 'bg-red-100 dark:bg-red-500/10'}`}>
-               <span className="material-symbols-outlined text-4xl text-red-500">bolt</span>
+        <div className="bg-[#fff5f5] border border-[#ffcdcd] rounded-[16px] p-6 md:p-8 flex flex-col items-center justify-center space-y-6 relative overflow-hidden shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
+          <div className="text-center space-y-3 relative z-10 p-6 bg-white rounded-[12px] border border-[#e3e8ee] shadow-[0_2px_5px_rgba(0,0,0,0.02)] w-full max-w-sm">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 transition-all ${isInjecting ? 'bg-[#df1b41]/10 animate-pulse' : 'bg-[#f6f9fc] border border-[#e3e8ee]'}`}>
+               <span className="material-symbols-outlined text-[28px] text-[#df1b41]">bolt</span>
             </div>
-            <h3 className="text-zinc-900 dark:text-white font-bold text-lg">Partition Ledger Primary DB</h3>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-semibold px-4">
-              This action pauses the PostgreSQL container to simulate a database crash.
+            <h3 className="text-[#0A2540] font-medium text-[18px]">Partition Ledger Primary DB</h3>
+            <p className="text-[12px] text-[#6B7C93] leading-[1.6]">
+              Pauses the PostgreSQL container to simulate a database crash. Auto-recovers after 6s.
             </p>
           </div>
 
           {/* Status indicator */}
           {chaosStatus && (
             <div className="relative z-10 w-full max-w-sm grid grid-cols-3 gap-2">
-              <div className={`p-2 rounded-lg text-center border ${chaosStatus.db_status === 'running' ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
-                <span className="text-[8px] uppercase tracking-widest text-zinc-500 font-bold block">DB</span>
-                <span className={`text-[10px] font-black uppercase ${chaosStatus.db_status === 'running' ? 'text-emerald-500' : 'text-red-500'}`}>
+              <div className={`p-2 rounded-[6px] text-center border ${chaosStatus.db_status === 'running' ? 'border-[#0CBF4C]/20 bg-[#e7f9ed]' : 'border-[#ffcdcd] bg-[#fff5f5]'}`}>
+                <span className="text-[9px] uppercase tracking-wider text-[#6B7C93] font-bold block">DB</span>
+                <span className={`text-[11px] font-bold uppercase ${chaosStatus.db_status === 'running' ? 'text-[#0CBF4C]' : 'text-[#df1b41]'}`}>
                   {chaosStatus.db_status}
                 </span>
               </div>
-              <div className={`p-2 rounded-lg text-center border ${chaosStatus.worker_status === 'running' ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/20 bg-amber-500/5'}`}>
-                <span className="text-[8px] uppercase tracking-widest text-zinc-500 font-bold block">Worker</span>
-                <span className={`text-[10px] font-black uppercase ${chaosStatus.worker_status === 'running' ? 'text-emerald-500' : 'text-amber-500'}`}>
+              <div className={`p-2 rounded-[6px] text-center border ${chaosStatus.worker_status === 'running' ? 'border-[#0CBF4C]/20 bg-[#e7f9ed]' : 'border-[#ffe0d4] bg-[#fff5f2]'}`}>
+                <span className="text-[9px] uppercase tracking-wider text-[#6B7C93] font-bold block">Worker</span>
+                <span className={`text-[11px] font-bold uppercase ${chaosStatus.worker_status === 'running' ? 'text-[#0CBF4C]' : 'text-[#ff6118]'}`}>
                   {chaosStatus.worker_status}
                 </span>
               </div>
-              <div className="p-2 rounded-lg text-center border border-zinc-200 dark:border-white/5 bg-white/50 dark:bg-black/50">
-                <span className="text-[8px] uppercase tracking-widest text-zinc-500 font-bold block">DLQ</span>
-                <span className="text-[10px] font-black text-zinc-900 dark:text-white">{chaosStatus.dlq_count}</span>
+              <div className="p-2 rounded-[6px] text-center border border-[#e3e8ee] bg-white">
+                <span className="text-[9px] uppercase tracking-wider text-[#6B7C93] font-bold block">DLQ</span>
+                <span className="text-[11px] font-bold text-[#0A2540]">{chaosStatus.dlq_count}</span>
               </div>
             </div>
           )}
@@ -158,42 +148,45 @@ export function ChaosPanel() {
           <button
             onClick={triggerChaos}
             disabled={isInjecting}
-            className="px-10 py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-[12px] uppercase tracking-[0.1em] shadow-[0_4px_20px_rgba(239,68,68,0.4)] transition-all active:scale-[0.98] disabled:opacity-50 disabled:grayscale relative z-10 w-full max-w-sm flex items-center justify-center gap-3"
+            className="px-8 py-3 bg-white border border-[#df1b41] text-[#df1b41] hover:bg-[#fff5f5] font-medium rounded-[8px] text-[14px] transition-all active:scale-[0.98] disabled:opacity-50 relative z-10 w-full max-w-sm flex items-center justify-center gap-2"
           >
             {isInjecting ? (
-              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Executing Partition Vector...</>
+              <><span className="w-4 h-4 border-2 border-[#df1b41]/30 border-t-[#df1b41] rounded-full animate-spin"></span> Executing...</>
             ) : (
-              'Execute Kill Sequence'
+              <>
+                <span className="material-symbols-outlined text-[18px]">bolt</span>
+                Execute Kill Sequence
+              </>
             )}
           </button>
         </div>
 
         {/* Stress Tester Panel */}
-        <div className="bg-white dark:bg-[#121315] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 flex flex-col space-y-8 relative overflow-hidden shadow-sm lg:col-start-1 lg:row-start-2">
-           <div className="text-center space-y-3 relative z-10 w-full mb-2">
-            <h3 className="text-zinc-900 dark:text-white font-bold text-lg">Concurrency Stress Test</h3>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-semibold">
-              Attempt 50 Simultaneous Double-Entry transfers to prove Row-Level Locking (Pessimistic) handles Deadlocks and Race Conditions.
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 flex flex-col space-y-6 relative overflow-hidden shadow-[0_2px_5px_rgba(0,0,0,0.02)] lg:col-start-1 lg:row-start-2">
+           <div className="text-center space-y-2 relative z-10 w-full">
+            <h3 className="text-[#0A2540] font-medium text-[18px]">Concurrency Stress Test</h3>
+            <p className="text-[13px] text-[#6B7C93] leading-[1.6]">
+              Run 50 simultaneous double-entry transfers to validate row-level locking.
             </p>
           </div>
 
           {stressMetrics && (
              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 z-10 w-full">
-                <div className="bg-zinc-50 dark:bg-black/50 p-3 flex flex-col items-center justify-center rounded-xl border border-zinc-200 dark:border-white/5">
-                   <span className="text-[9px] uppercase tracking-widest font-bold text-blue-500">Attempted</span>
-                   <span className="font-mono font-black text-xl text-zinc-900 dark:text-white">{stressMetrics.attempted}</span>
+                <div className="bg-[#f6f9fc] p-3 flex flex-col items-center justify-center rounded-[8px] border border-[#e3e8ee]">
+                   <span className="text-[10px] uppercase tracking-wider font-bold text-[#635BFF]">Attempted</span>
+                   <span className="font-mono font-light text-[22px] text-[#0A2540]">{stressMetrics.attempted}</span>
                 </div>
-                <div className="bg-zinc-50 dark:bg-black/50 p-3 flex flex-col items-center justify-center rounded-xl border border-zinc-200 dark:border-white/5">
-                   <span className="text-[9px] uppercase tracking-widest font-bold text-emerald-500">Succeeded</span>
-                   <span className="font-mono font-black text-xl text-zinc-900 dark:text-white">{stressMetrics.succeeded}</span>
+                <div className="bg-[#f6f9fc] p-3 flex flex-col items-center justify-center rounded-[8px] border border-[#e3e8ee]">
+                   <span className="text-[10px] uppercase tracking-wider font-bold text-[#0CBF4C]">Succeeded</span>
+                   <span className="font-mono font-light text-[22px] text-[#0A2540]">{stressMetrics.succeeded}</span>
                 </div>
-                <div className="bg-zinc-50 dark:bg-black/50 p-3 flex flex-col items-center justify-center rounded-xl border border-zinc-200 dark:border-white/5">
-                   <span className="text-[9px] uppercase tracking-widest font-bold text-red-500">Deadlocks</span>
-                   <span className="font-mono font-black text-xl text-zinc-900 dark:text-white">{stressMetrics.deadlocks}</span>
+                <div className="bg-[#f6f9fc] p-3 flex flex-col items-center justify-center rounded-[8px] border border-[#e3e8ee]">
+                   <span className="text-[10px] uppercase tracking-wider font-bold text-[#df1b41]">Deadlocks</span>
+                   <span className="font-mono font-light text-[22px] text-[#0A2540]">{stressMetrics.deadlocks}</span>
                 </div>
-                <div className="bg-zinc-50 dark:bg-black/50 p-3 flex flex-col items-center justify-center rounded-xl border border-zinc-200 dark:border-white/5">
-                   <span className="text-[9px] uppercase tracking-widest font-bold text-purple-500">Latency</span>
-                   <span className="font-mono font-black text-xl text-zinc-900 dark:text-white">{stressMetrics.latency_ms}ms</span>
+                <div className="bg-[#f6f9fc] p-3 flex flex-col items-center justify-center rounded-[8px] border border-[#e3e8ee]">
+                   <span className="text-[10px] uppercase tracking-wider font-bold text-[#635BFF]">Latency</span>
+                   <span className="font-mono font-light text-[22px] text-[#0A2540]">{stressMetrics.latency_ms}ms</span>
                 </div>
              </div>
           )}
@@ -216,27 +209,31 @@ export function ChaosPanel() {
               }
             }}
             disabled={isStressing}
-            className="px-10 py-4 bg-zinc-900 hover:bg-black dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-black font-bold rounded-xl text-[12px] uppercase tracking-[0.1em] transition-all active:scale-[0.98] disabled:opacity-50 disabled:grayscale relative z-10 w-full"
+            className="px-8 py-3 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[14px] transition-all active:scale-[0.98] disabled:opacity-50 relative z-10 w-full flex items-center justify-center gap-2"
           >
-            {isStressing ? 'Assaulting Database...' : 'Run 50-Thread Assault'}
+            {isStressing ? (
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Testing...</>
+            ) : (
+              'Run 50-Thread Assault'
+            )}
           </button>
         </div>
 
-        {/* Audit / System Log Panel */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col h-[500px] lg:col-start-2 lg:row-span-2">
-          <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-4">
-             <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold">Node Telemetry Stream</h3>
-             <span className={`w-2 h-2 rounded-full ${isInjecting ? 'bg-red-500 animate-pulse' : 'bg-green-500'} shadow-[0_0_8px_rgba(34,197,94,0.6)]`}></span>
+        {/* Audit / System Log Panel — keep dark terminal aesthetic intentionally */}
+        <div className="bg-[#0A2540] border border-[#1a3a5c] rounded-[16px] p-6 shadow-[0_2px_5px_rgba(0,0,0,0.08)] flex flex-col h-[500px] lg:col-start-2 lg:row-span-2">
+          <div className="flex justify-between items-center mb-4 border-b border-[#1a3a5c] pb-4">
+             <h3 className="text-[13px] font-medium text-[#6B7C93]">Node Telemetry Stream</h3>
+             <span className={`w-2 h-2 rounded-full ${isInjecting ? 'bg-[#df1b41] animate-pulse' : 'bg-[#0CBF4C]'}`}></span>
           </div>
 
-          <div className="flex-1 bg-black rounded-xl p-4 overflow-hidden font-mono text-[11px] leading-relaxed text-zinc-500 shadow-inner">
-             <div className="flex flex-col justify-end h-full space-y-1 overflow-y-auto">
+          <div className="flex-1 bg-[#051525] rounded-[8px] p-4 overflow-hidden font-mono text-[11px] leading-relaxed text-[#425466] shadow-inner">
+             <div className="flex flex-col justify-end h-full space-y-1 overflow-y-auto scrollbar-hide">
                {logs.map((log, index) => (
                  <div key={index} className={
-                   log.includes('WARN') ? 'text-amber-400' :
-                   log.includes('CRITICAL') || log.includes('ERRROR') ? 'text-red-500 font-bold' :
-                   log.includes('INFO') ? 'text-blue-400' :
-                   'text-green-500'
+                   log.includes('WARN') ? 'text-[#ff6118]' :
+                   log.includes('CRITICAL') || log.includes('ERROR') ? 'text-[#df1b41] font-semibold' :
+                   log.includes('INFO') || log.includes('SUCCESS') ? 'text-[#635BFF]' :
+                   'text-[#0CBF4C]'
                  }>
                    {log}
                  </div>

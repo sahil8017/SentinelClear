@@ -1,6 +1,6 @@
 """Statement router — PDF account statement export."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -38,7 +38,7 @@ async def download_statement(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found or not yours")
 
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
 
     # Fetch ledger entries for the period

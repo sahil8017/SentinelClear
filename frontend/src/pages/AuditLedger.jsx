@@ -27,55 +27,55 @@ export function AuditLedger() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
+    <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 fade-in duration-500 pb-20 px-4 md:px-0">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-4">
-          EOD Cryptographic Audit
-          <span className="text-[10px] uppercase tracking-widest text-indigo-600 dark:text-indigo-400 font-bold px-2 py-1 rounded bg-indigo-100 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 translate-y-[-2px]">Compliance</span>
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2 max-w-lg">
-          Validate the mathematical integrity of the SentinelClear double-entry ledger by verifying the SHA-256 hash chain of all system actions. Detects direct row insertion or underlying database mutations.
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-[32px] md:text-[40px] font-light tracking-tight text-[#0A2540] m-0">EOD Cryptographic Audit</h1>
+          <span className="text-[10px] uppercase tracking-wider text-[#635BFF] font-bold px-2 py-1 rounded bg-[#f0eeff] border border-[#635BFF]/20">Compliance</span>
+        </div>
+        <p className="text-[14px] text-[#425466] mt-2 max-w-lg leading-[1.6]">
+          Validate the mathematical integrity of the SentinelClear double-entry ledger by verifying the SHA-256 hash chain.
         </p>
       </div>
 
-      <div className="bg-white dark:bg-[#0c0d0f] border border-zinc-200 dark:border-white/5 rounded-2xl p-8 max-w-lg shadow-sm w-full">
+      <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 max-w-lg shadow-[0_2px_5px_rgba(0,0,0,0.02)] w-full">
         <button
           onClick={runVerification}
           disabled={isVerifying}
-          className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-[12px] uppercase tracking-[0.1em] shadow-[0_4px_20px_rgba(79,70,229,0.3)] transition-all active:scale-[0.98] disabled:opacity-50 disabled:grayscale relative z-10"
+          className="w-full flex items-center justify-center gap-2 py-3 bg-[#635BFF] hover:bg-[#5851db] text-white font-medium rounded-[8px] text-[14px] shadow-[0_2px_5px_rgba(99,91,255,0.3)] transition-all active:scale-[0.98] disabled:opacity-50"
         >
           {isVerifying ? (
-            <><span className="material-symbols-outlined animate-spin text-[18px]">refresh</span> Verifying Chained Hashes...</>
+            <><span className="material-symbols-outlined animate-spin text-[18px]">refresh</span> Verifying...</>
           ) : (
-            <><span className="material-symbols-outlined text-[18px]">enhanced_encryption</span> Execute Cryptographic Hash Validation</>
+            <><span className="material-symbols-outlined text-[18px]">enhanced_encryption</span> Execute Hash Validation</>
           )}
         </button>
 
         {auditStatus && (
-          <div className={`mt-8 p-6 rounded-2xl border ${auditStatus.intact ? 'bg-emerald-50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20' : 'bg-red-50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20'}`}>
-            <h3 className={`font-black flex items-center gap-3 text-lg ${auditStatus.intact ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
-              <span className="material-symbols-outlined text-2xl">
+          <div className={`mt-6 p-6 rounded-[12px] border ${auditStatus.intact ? 'bg-[#e7f9ed] border-[#0CBF4C]/20' : 'bg-[#fff5f5] border-[#ffcdcd]'}`}>
+            <h3 className={`font-medium flex items-center gap-2 text-[16px] ${auditStatus.intact ? 'text-[#0CBF4C]' : 'text-[#df1b41]'}`}>
+              <span className="material-symbols-outlined text-[24px]">
                 {auditStatus.intact ? 'verified' : 'gpp_bad'}
               </span>
-              {auditStatus.intact ? 'System Integrity: VERIFIED' : 'TAMPER DETECTED!'}
+              {auditStatus.intact ? 'Integrity: VERIFIED' : 'TAMPER DETECTED'}
             </h3>
             
-            <div className="mt-6 space-y-4 text-sm text-zinc-600 dark:text-zinc-400 font-mono text-[11px] leading-relaxed">
-               <div className="flex justify-between items-center border-b border-black/5 dark:border-white/5 pb-2">
-                 <span className="text-zinc-500">Hash Entries Navigated</span>
-                 <span className="font-bold text-zinc-900 dark:text-white">{auditStatus.entries_checked} / {auditStatus.total_entries}</span>
+            <div className="mt-4 space-y-3 text-[13px] font-mono">
+               <div className="flex justify-between items-center border-b border-[#e3e8ee] pb-2">
+                 <span className="text-[#6B7C93]">Entries Verified</span>
+                 <span className="font-medium text-[#0A2540]">{auditStatus.entries_checked} / {auditStatus.total_entries}</span>
                </div>
                
-               <div className="flex justify-between items-center border-b border-black/5 dark:border-white/5 pb-2">
-                 <span className="text-zinc-500">System Message</span>
-                 <span className="font-bold text-zinc-900 dark:text-white truncate max-w-[200px]">{auditStatus.message}</span>
+               <div className="flex justify-between items-center border-b border-[#e3e8ee] pb-2">
+                 <span className="text-[#6B7C93]">Message</span>
+                 <span className="font-medium text-[#0A2540] truncate max-w-[200px]">{auditStatus.message}</span>
                </div>
 
                {!auditStatus.intact && (
-                 <div className="pt-4 border-t border-red-200 dark:border-red-500/20 mt-4">
-                   <p className="text-red-600 dark:text-red-400 font-bold flex items-start gap-2">
-                     <span className="material-symbols-outlined text-[16px]">warning</span>
-                     Critical Alert: Cryptographic linkage broken at entry ID #{auditStatus.first_tampered_at}. Underlying Postgres table may have been directly modified.
+                 <div className="pt-3 border-t border-[#ffcdcd] mt-3">
+                   <p className="text-[#df1b41] font-medium flex items-start gap-2 text-[12px]">
+                     <span className="material-symbols-outlined text-[14px]">warning</span>
+                     Cryptographic linkage broken at entry #{auditStatus.first_tampered_at}.
                    </p>
                  </div>
                )}

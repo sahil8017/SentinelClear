@@ -37,21 +37,18 @@ export function ProfileSetup() {
 
     setIsSubmitting(true);
     try {
-      // Step 1: Save personal info via PATCH
       await apiClient.patch('/auth/profile', {
         full_name: form.full_name,
         date_of_birth: form.date_of_birth,
         occupation: form.occupation,
       });
 
-      // Step 2: If PIN was provided, set it separately
       if (form.transaction_pin) {
         try {
           await apiClient.post('/auth/transaction-pin', { pin: form.transaction_pin });
         } catch {}
       }
 
-      // Step 3: Mark profile as complete
       await apiClient.patch('/auth/profile', { profile_complete: true });
 
       toast.success('Profile setup complete!', { duration: 3000 });
@@ -64,31 +61,31 @@ export function ProfileSetup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-[#060607] px-4">
-      <div className="w-full max-w-lg animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="min-h-screen flex items-center justify-center bg-[#f6f9fc] px-4">
+      <div className="w-full max-w-lg animate-in fade-in slide-in-from-bottom-4 duration-500">
         {/* Progress Bar */}
         <div className="flex items-center gap-2 mb-8">
           {[1, 2].map(s => (
             <div key={s} className="flex-1 flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all ${
-                step >= s ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-zinc-200 dark:bg-white/10 text-zinc-400'
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold transition-all ${
+                step >= s ? 'bg-[#635BFF] text-white shadow-[0_2px_5px_rgba(99,91,255,0.3)]' : 'bg-[#e3e8ee] text-[#6B7C93]'
               }`}>{s}</div>
-              {s < 2 && <div className={`flex-1 h-0.5 rounded-full transition-all ${step > s ? 'bg-indigo-500' : 'bg-zinc-200 dark:bg-white/10'}`} />}
+              {s < 2 && <div className={`flex-1 h-0.5 rounded-full transition-all ${step > s ? 'bg-[#635BFF]' : 'bg-[#e3e8ee]'}`} />}
             </div>
           ))}
         </div>
 
-        <div className="bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8 shadow-xl">
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 flex items-center justify-center mx-auto mb-4">
-              <span className="material-symbols-outlined text-indigo-500 text-3xl">
+            <div className="w-14 h-14 rounded-[12px] bg-[#f0eeff] flex items-center justify-center mx-auto mb-4">
+              <span className="material-symbols-outlined text-[#635BFF] text-[28px]">
                 {step === 1 ? 'person' : 'pin'}
               </span>
             </div>
-            <h1 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">
+            <h1 className="text-[24px] font-medium text-[#0A2540]">
               {step === 1 ? 'Complete Your Profile' : 'Set Transaction PIN'}
             </h1>
-            <p className="text-sm text-zinc-500 mt-2">
+            <p className="text-[14px] text-[#6B7C93] mt-2">
               {step === 1 ? 'We need a few details to get started' : 'Secure your high-value transactions'}
             </p>
           </div>
@@ -96,25 +93,25 @@ export function ProfileSetup() {
           {step === 1 && (
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.1em]">Full Name *</label>
+                <label className="text-[12px] font-medium text-[#0A2540]">Full Name *</label>
                 <input type="text" value={form.full_name}
                   onChange={e => setForm({...form, full_name: e.target.value})}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/5 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all text-zinc-900 dark:text-white"
+                  className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] outline-none focus:border-[#635BFF] focus:ring-2 focus:ring-[#635BFF]/20 transition-all text-[#0A2540]"
                   placeholder="Enter your full name" />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.1em]">Date of Birth *</label>
+                <label className="text-[12px] font-medium text-[#0A2540]">Date of Birth *</label>
                 <input type="date" value={form.date_of_birth}
                   onChange={e => setForm({...form, date_of_birth: e.target.value})}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/5 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all text-zinc-900 dark:text-white" />
+                  className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] outline-none focus:border-[#635BFF] focus:ring-2 focus:ring-[#635BFF]/20 transition-all text-[#0A2540]" />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.1em]">Occupation *</label>
+                <label className="text-[12px] font-medium text-[#0A2540]">Occupation *</label>
                 <select value={form.occupation}
                   onChange={e => setForm({...form, occupation: e.target.value})}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/5 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all text-zinc-900 dark:text-white appearance-none">
+                  className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] outline-none focus:border-[#635BFF] focus:ring-2 focus:ring-[#635BFF]/20 transition-all text-[#0A2540]">
                   <option value="">Select occupation...</option>
                   {occupations.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
@@ -127,46 +124,46 @@ export function ProfileSetup() {
                 }
                 setStep(2);
               }}
-                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-widest rounded-xl text-[11px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-2">
-                Continue <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                className="w-full py-3 bg-[#635BFF] hover:bg-[#5851db] text-white font-medium rounded-[8px] text-[15px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-2 shadow-[0_2px_5px_rgba(99,91,255,0.3)]">
+                Continue <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
               </button>
             </div>
           )}
 
           {step === 2 && (
             <div className="space-y-5">
-              <div className="p-4 bg-amber-500/5 border border-amber-500/10 rounded-2xl mb-2">
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-bold flex items-center gap-2">
-                  <span className="material-symbols-outlined text-sm">info</span>
-                  PIN is used for Step-Up Authentication on high-value transfers. You can skip this and set it later.
+              <div className="p-3 bg-[#fff5f2] border border-[#ffe0d4] rounded-[8px]">
+                <p className="text-[12px] text-[#ff6118] font-medium flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[14px]">info</span>
+                  PIN is used for Step-Up Authentication on high-value transfers. You can skip this.
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.1em]">Transaction PIN (4-6 digits)</label>
+                <label className="text-[12px] font-medium text-[#0A2540]">Transaction PIN (4-6 digits)</label>
                 <input type="password" value={form.transaction_pin} maxLength={6}
                   onChange={e => setForm({...form, transaction_pin: e.target.value.replace(/\D/g, '')})}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/5 rounded-xl px-4 py-3.5 text-sm font-mono tracking-[0.5em] text-center outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all text-zinc-900 dark:text-white"
+                  className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] font-mono tracking-[0.5em] text-center outline-none focus:border-[#635BFF] focus:ring-2 focus:ring-[#635BFF]/20 transition-all text-[#0A2540]"
                   placeholder="• • • •" />
               </div>
 
               {form.transaction_pin && (
                 <div className="space-y-1.5 animate-in fade-in duration-200">
-                  <label className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.1em]">Confirm PIN</label>
+                  <label className="text-[12px] font-medium text-[#0A2540]">Confirm PIN</label>
                   <input type="password" value={form.confirm_pin} maxLength={6}
                     onChange={e => setForm({...form, confirm_pin: e.target.value.replace(/\D/g, '')})}
-                    className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/5 rounded-xl px-4 py-3.5 text-sm font-mono tracking-[0.5em] text-center outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all text-zinc-900 dark:text-white"
+                    className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] font-mono tracking-[0.5em] text-center outline-none focus:border-[#635BFF] focus:ring-2 focus:ring-[#635BFF]/20 transition-all text-[#0A2540]"
                     placeholder="• • • •" />
                 </div>
               )}
 
-              <div className="flex gap-3 mt-2">
+              <div className="flex flex-col sm:flex-row gap-3 mt-2">
                 <button onClick={() => setStep(1)}
-                  className="flex-1 py-4 bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 font-black uppercase tracking-widest rounded-xl text-[11px] transition-all hover:bg-zinc-200 dark:hover:bg-white/10">
+                  className="flex-1 py-3 bg-white border border-[#e3e8ee] text-[#425466] font-medium rounded-[8px] text-[14px] transition-colors hover:bg-[#f6f9fc]">
                   Back
                 </button>
                 <button onClick={handleSubmit} disabled={isSubmitting}
-                  className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-widest rounded-xl text-[11px] transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2">
+                  className="flex-[2] py-3 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[14px] transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2">
                   {isSubmitting ? (
                     <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Saving...</>
                   ) : (
@@ -178,7 +175,7 @@ export function ProfileSetup() {
           )}
         </div>
 
-        <p className="text-center text-[10px] text-zinc-400 mt-6 font-bold uppercase tracking-widest">
+        <p className="text-center text-[11px] text-[#6B7C93] mt-6 font-medium">
           SentinelClear · Secure Onboarding
         </p>
       </div>

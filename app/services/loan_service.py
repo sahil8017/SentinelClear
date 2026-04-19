@@ -17,6 +17,7 @@ from app.services.audit import create_audit_entry
 from app.services import cache as redis_cache
 
 TREASURY_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
+TREASURY_OWNER_ID = 1  # System admin user — must match the first seeded admin account
 
 
 async def _ensure_treasury(db: AsyncSession) -> Account:
@@ -26,7 +27,7 @@ async def _ensure_treasury(db: AsyncSession) -> Account:
     if not treasury:
         treasury = Account(
             id=TREASURY_ACCOUNT_ID,
-            owner_id=1,
+            owner_id=TREASURY_OWNER_ID,
             account_type="treasury",
             balance=1_000_000_000.0,
         )

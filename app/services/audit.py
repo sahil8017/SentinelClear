@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +32,7 @@ async def create_audit_entry(
     previous_hash = last_entry.current_hash if last_entry else GENESIS_HASH
 
     details_json = json.dumps(details_dict, sort_keys=True, default=str)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     timestamp_str = now.isoformat()
 
     current_hash = _compute_hash(previous_hash, transfer_id, action, details_json, timestamp_str)

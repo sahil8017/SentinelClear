@@ -62,20 +62,20 @@ export function CommandPalette() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh] bg-black/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh] bg-black/40 backdrop-blur-sm p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="bg-white dark:bg-zinc-900 w-full max-w-xl rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden border border-zinc-200 dark:border-white/10 flex flex-col relative z-10 animate-in zoom-in-95 duration-200"
+        className="bg-white w-full max-w-xl rounded-[12px] shadow-[0_20px_60px_rgba(0,0,0,0.15)] overflow-hidden border border-[#e3e8ee] flex flex-col relative z-10 animate-in zoom-in-95 duration-200"
       >
-        <div className="flex items-center px-4 py-4 border-b border-zinc-200 dark:border-zinc-800">
-          <span className="material-symbols-outlined text-zinc-400 mr-3 text-2xl">search</span>
+        <div className="flex items-center px-4 py-4 border-b border-[#e3e8ee]">
+          <span className="material-symbols-outlined text-[#6B7C93] mr-3 text-[22px]">search</span>
           <input
             ref={inputRef}
             type="text"
-            className="flex-1 bg-transparent text-zinc-900 dark:text-white outline-none placeholder:text-zinc-500 text-lg"
+            className="flex-1 bg-transparent text-[#0A2540] outline-none placeholder:text-[#6B7C93] text-[16px]"
             placeholder="Search commands or jump to..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -84,40 +84,40 @@ export function CommandPalette() {
           <button
             type="button"
             onClick={() => setIsOpen(false)}
-            className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white border border-zinc-200 dark:border-zinc-700 rounded px-2 py-1 ml-2 transition-colors"
+            className="text-[10px] font-bold bg-[#f6f9fc] text-[#6B7C93] hover:text-[#0A2540] border border-[#e3e8ee] rounded px-2 py-1 ml-2 transition-colors"
             aria-label="Close command palette"
           >
             ESC
           </button>
         </div>
 
-        <div className="p-3 space-y-1 bg-zinc-50 dark:bg-zinc-900/50">
-          <p className="px-3 py-2 text-xs font-bold text-zinc-500 uppercase tracking-widest">Quick Navigation</p>
+        <div className="p-3 space-y-1 bg-[#f6f9fc]">
+          <p className="px-3 py-2 text-[11px] font-bold text-[#6B7C93] uppercase tracking-wider">Quick Navigation</p>
 
           <button
             type="button"
             onClick={() => { navigate('/transfer'); setIsOpen(false); }}
-            className="w-full text-left px-3 py-3 text-sm font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-3 transition-colors"
+            className="w-full text-left px-3 py-3 text-[13px] font-medium text-[#0A2540] hover:bg-white rounded-[6px] flex items-center gap-3 transition-colors"
           >
-            <span className="material-symbols-outlined text-[18px] text-indigo-500">swap_horiz</span>
+            <span className="material-symbols-outlined text-[18px] text-[#635BFF]">swap_horiz</span>
             Execute New Transfer
           </button>
 
           <button
             type="button"
             onClick={() => { navigate('/ledger'); setIsOpen(false); }}
-            className="w-full text-left px-3 py-3 text-sm font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-3 transition-colors"
+            className="w-full text-left px-3 py-3 text-[13px] font-medium text-[#0A2540] hover:bg-white rounded-[6px] flex items-center gap-3 transition-colors"
           >
-            <span className="material-symbols-outlined text-[18px] text-zinc-500">menu_book</span>
+            <span className="material-symbols-outlined text-[18px] text-[#6B7C93]">menu_book</span>
             Access Sentinel Ledger
           </button>
 
           <button
             type="button"
             onClick={() => { navigate('/analytics'); setIsOpen(false); }}
-            className="w-full text-left px-3 py-3 text-sm font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-3 transition-colors"
+            className="w-full text-left px-3 py-3 text-[13px] font-medium text-[#0A2540] hover:bg-white rounded-[6px] flex items-center gap-3 transition-colors"
           >
-            <span className="material-symbols-outlined text-[18px] text-red-500">shield_locked</span>
+            <span className="material-symbols-outlined text-[18px] text-[#df1b41]">shield_locked</span>
             Review Threat Intel
           </button>
         </div>

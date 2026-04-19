@@ -16,6 +16,7 @@ from app.services import rabbitmq as rmq
 from app.services import cache as redis_cache
 from app.services.fraud import seed_rule_configs
 from app.services.reconciliation import run_reconciliation
+from app.services import neo4j_service
 from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement, websocket, chaos, loans, aml, whitelist, admin_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -48,7 +49,7 @@ async def lifespan(app: FastAPI):
             u.transaction_pin_hash = _pwd.hash("1234")  # Default demo PIN
         if users_without_pin:
             await db.commit()
-            logger.info(f"🔐 Seeded default transaction PIN for {len(users_without_pin)} users (PIN: 1234)")
+            logger.info(f"🔐 Seeded default transaction PIN for {len(users_without_pin)} users")
 
     # ML Loan Eligibility Model
     from app.services.ml_loan_service import load_model as load_loan_model
@@ -64,6 +65,13 @@ async def lifespan(app: FastAPI):
     # Connect to Redis
     await redis_cache.connect()
     logger.info("✅ Redis cache ready")
+
+    # Connect to Neo4j
+    try:
+        await neo4j_service.connect()
+        logger.info("✅ Neo4j graph database ready")
+    except Exception as exc:
+        logger.warning("⚠️  Neo4j connection failed: %s — AML graph features degraded", exc)
 
     # Start scheduled reconciliation
     global _scheduler
@@ -100,6 +108,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if _scheduler:
         _scheduler.shutdown(wait=False)
+    await neo4j_service.disconnect()
     await redis_cache.disconnect()
     await rmq.disconnect()
     await engine.dispose()
@@ -130,8 +139,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_normalize_origins(settings.ALLOWED_ORIGINS),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Idempotency-Key", "X-Admin-Token"],
 )
 
 # ── Prometheus instrumentation ──
@@ -171,6 +180,7 @@ async def health_check():
     db_status = "healthy"
     rmq_status = "healthy"
     redis_status = "healthy"
+    neo4j_status = "healthy"
 
     try:
         async with AsyncSessionLocal() as session:
@@ -190,26 +200,34 @@ async def health_check():
     except Exception:
         redis_status = "unhealthy"
 
-    all_healthy = all(s == "healthy" for s in [db_status, rmq_status, redis_status])
+    try:
+        if not await neo4j_service.is_healthy():
+            neo4j_status = "unhealthy"
+    except Exception:
+        neo4j_status = "unhealthy"
+
+    all_healthy = all(s == "healthy" for s in [db_status, rmq_status, redis_status, neo4j_status])
     overall = "healthy" if all_healthy else "degraded"
     return {
         "status": overall,
         "database": db_status,
         "rabbitmq": rmq_status,
         "redis": redis_status,
+        "neo4j": neo4j_status,
     }
 
 
 # ────────────────────────────── Reconciliation (Manual Trigger) ──────────────────────────────
 
-@app.post("/admin/reconciliation", tags=["Admin"])
+from app.dependencies import require_admin as _require_admin
+
+@app.post("/admin/reconciliation", tags=["Admin"], dependencies=[Depends(_require_admin)])
 async def trigger_reconciliation():
     """Manually trigger a balance reconciliation check.
 
     Walks all accounts, recomputes balances from ledger entries,
     and flags any discrepancies. Results are stored in reconciliation_logs.
     """
-    from app.schemas import ReconciliationOut
     async with AsyncSessionLocal() as db:
         result = await run_reconciliation(db)
     return result

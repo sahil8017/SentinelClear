@@ -57,8 +57,9 @@ async def get_current_user(
 async def require_admin(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
 ) -> str:
-    """Decode JWT and verify the ADMIN role."""
+    """Decode JWT, verify ADMIN role, and confirm user still exists in DB."""
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -73,6 +74,7 @@ async def require_admin(
             algorithms=[settings.JWT_ALGORITHM],
         )
         role: str | None = payload.get("role")
+        user_id: int | None = payload.get("sub")
         if role != "ADMIN":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -83,6 +85,22 @@ async def require_admin(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+
+    # Verify user still exists in DB and role hasn't been revoked
+    if user_id is not None:
+        result = await db.execute(select(User).where(User.id == int(user_id)))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Admin user no longer exists",
+            )
+        if user.role != "ADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges have been revoked.",
+            )
+
     return token
 
 async def verify_api_key(

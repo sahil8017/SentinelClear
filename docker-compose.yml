@@ -44,6 +44,25 @@ services:
       timeout: 3s
       retries: 10
 
+  # ─────────────────── Neo4j (Graph DB) ───────────────────
+  neo4j:
+    image: neo4j:5-community
+    container_name: neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/sentinel_neo4j_2024
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
   # ─────────────────── FastAPI Gateway ───────────────────
   api-gateway:
     build:
@@ -61,12 +80,17 @@ services:
       - DATABASE_URL=postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear
       - REDIS_URL=redis://redis:6379/0
       - RABBITMQ_URL=amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASS=sentinel_neo4j_2024
     depends_on:
       postgres-db:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      neo4j:
         condition: service_healthy
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
@@ -83,10 +107,15 @@ services:
       - DATABASE_URL=postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear
       - REDIS_URL=redis://redis:6379/0
       - RABBITMQ_URL=amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASS=sentinel_neo4j_2024
     depends_on:
       postgres-db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      neo4j:
         condition: service_healthy
     restart: on-failure
 
@@ -137,3 +166,4 @@ volumes:
   pgdata:
   grafana_data:
   redis_data:
+  neo4j_data:

@@ -4,7 +4,7 @@ and UPI safety rules (transaction pause, vulnerable group, kill switch, annual l
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -44,7 +44,7 @@ async def _upsert_snapshot(db: AsyncSession, account_id: str, balance: float) ->
     snap = result.scalar_one_or_none()
     if snap:
         snap.balance = balance
-        snap.snapshot_at = datetime.utcnow()
+        snap.snapshot_at = datetime.now(timezone.utc)
     else:
         snap = BalanceSnapshot(account_id=account_id, balance=balance)
         db.add(snap)
@@ -515,7 +515,7 @@ async def create_transfer(
             "receiver_account_id": body.receiver_account_id,
             "amount": body.amount,
             "status": "COMPLETED",
-            "created_at": transfer.created_at.isoformat() if transfer.created_at else datetime.utcnow().isoformat()
+            "created_at": transfer.created_at.isoformat() if transfer.created_at else datetime.now(timezone.utc).isoformat()
         }
         await dispatch_webhook(user.id, webhook_payload)
     except Exception:
@@ -1021,13 +1021,11 @@ async def approve_transfer(
     acct_res = await db.execute(select(Account.owner_id).where(Account.id == transfer.sender_account_id))
     owner_id = acct_res.scalar_one_or_none()
 
-    # NOTE: Disabled for Localhost Demo Purposes so a single user can test the flow.
-    # In production, this active constraint PREVENTS the initiator from approving their own tx.
-    # if owner_id == user.id:
-    #     raise HTTPException(
-    #         status_code=403, 
-    #         detail="Four Eyes Principle Violated: The Maker (Initiator) cannot be the Checker (Approver)."
-    #     )
+    if owner_id == user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Four Eyes Principle Violated: The Maker (Initiator) cannot be the Checker (Approver)."
+        )
 
     try:
         transfer = await _execute_deferred_transfer(db, transfer)
@@ -1043,7 +1041,9 @@ async def approve_transfer(
     try:
         await create_audit_entry(db, transfer.id, "MAKER_CHECKER_APPROVED", {"checker_id": user.id})
         await db.commit()
-    except: pass
+    except Exception as exc:
+        import logging
+        logging.getLogger("transfers").error("Audit entry failed for MAKER_CHECKER_APPROVED on %s: %s", transfer.id, exc)
 
     return transfer
 
@@ -1073,6 +1073,8 @@ async def reject_transfer(
     try:
         await create_audit_entry(db, transfer.id, "MAKER_CHECKER_REJECTED", {"checker_id": user.id})
         await db.commit()
-    except: pass
+    except Exception as exc:
+        import logging
+        logging.getLogger("transfers").error("Audit entry failed for MAKER_CHECKER_REJECTED on %s: %s", transfer.id, exc)
 
     return transfer

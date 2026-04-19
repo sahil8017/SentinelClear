@@ -36,9 +36,22 @@ class RateLimiter:
         if self.key_func == "ip":
             identifier = request.client.host if request.client else "unknown"
         else:
-            # For user-based limiting, extract from auth header
+            # Extract user ID from JWT for user-based rate limiting
             auth = request.headers.get("authorization", "")
-            identifier = auth[-16:] if auth else "anon"
+            if auth.startswith("Bearer ") and len(auth) > 7:
+                try:
+                    from jose import jwt as _jwt
+                    from app.config import settings as _rl_settings
+                    payload = _jwt.decode(
+                        auth[7:],
+                        _rl_settings.JWT_SECRET_KEY,
+                        algorithms=[_rl_settings.JWT_ALGORITHM],
+                    )
+                    identifier = f"user:{payload.get('sub', 'unknown')}"
+                except Exception:
+                    identifier = auth[-16:] if auth else "anon"
+            else:
+                identifier = "anon"
 
         key = f"{RATE_LIMIT_PREFIX}{request.url.path}:{identifier}"
         now = time.time()

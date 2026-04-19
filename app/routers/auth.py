@@ -9,7 +9,7 @@ import re
 import secrets
 import uuid
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import jwt
@@ -52,7 +52,7 @@ class FirebaseLoginRequest(BaseModel):
     token: str = Field(..., description="Firebase ID Token explicitly received via Frontend popup")
 
 def _create_token(user_id: int, role: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     return jwt.encode(
         {"sub": str(user_id), "role": role, "exp": expire},
         settings.JWT_SECRET_KEY,
@@ -98,21 +98,21 @@ async def login(
     _rate: None = Depends(login_limiter),
 ):
     """Authenticate and return a JWT token."""
-    logger.info(f"Login attempt for identifier: {body.username}")
+    logger.info("Login attempt for identifier: %s***", body.username[:3] if len(body.username) > 3 else "***")
     result = await db.execute(
         select(User).where((User.username == body.username) | (User.email == body.username))
     )
     user = result.scalar_one_or_none()
     
     if not user:
-        logger.warning(f"Login failed: User not found for {body.username}")
+        logger.warning("Login failed: user not found (identifier redacted)")
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     if not pwd_context.verify(body.password, user.hashed_password):
-        logger.warning(f"Login failed: Password mismatch for {user.email}")
+        logger.warning("Login failed: password mismatch for user_id=%s", user.id)
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    logger.info(f"Login successful for {user.email}")
+    logger.info("Login successful for user_id=%s", user.id)
     return TokenResponse(access_token=_create_token(user.id, user.role))
 
 @router.post("/firebase-login", response_model=TokenResponse)

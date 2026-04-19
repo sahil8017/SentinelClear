@@ -1,6 +1,6 @@
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -43,7 +43,7 @@ def generate_fiu_str_pdf(transfer: Transfer) -> bytes:
     )))
 
     # Basic Meta
-    report_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    report_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     tx_time = transfer.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if transfer.created_at else report_time
     
     meta_data = [

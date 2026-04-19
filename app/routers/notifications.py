@@ -27,7 +27,7 @@ async def get_notifications(
         .limit(limit)
     )
     if unread_only:
-        query = query.where(Notification.is_read == False)
+        query = query.where(Notification.is_read.is_(False))
 
     result = await db.execute(query)
     return result.scalars().all()
@@ -41,7 +41,7 @@ async def get_unread_count(
     """Get count of unread notifications."""
     result = await db.execute(
         select(func.count(Notification.id))
-        .where(Notification.user_id == user.id, Notification.is_read == False)
+        .where(Notification.user_id == user.id, Notification.is_read.is_(False))
     )
     return {"unread_count": result.scalar() or 0}
 
@@ -73,7 +73,7 @@ async def mark_all_read(
     """Mark all of the user's notifications as read."""
     result = await db.execute(
         update(Notification)
-        .where(Notification.user_id == user.id, Notification.is_read == False)
+        .where(Notification.user_id == user.id, Notification.is_read.is_(False))
         .values(is_read=True)
     )
     await db.commit()

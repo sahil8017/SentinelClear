@@ -37,10 +37,9 @@ export function UPISafety() {
     try {
       const res = await apiClient.post('/accounts/kill-switch/activate');
       setKillSwitch(res.data);
-      toast.error('🚨 KILL SWITCH ACTIVATED', {
+      toast.error('KILL SWITCH ACTIVATED', {
         description: 'All outgoing payments are now suspended.',
         duration: 8000,
-        style: { background: '#1c1917', border: '2px solid #ef4444', color: '#fef2f2' },
       });
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to activate kill switch');
@@ -71,103 +70,104 @@ export function UPISafety() {
 
   if (showSkeleton) {
     return (
-      <div className="max-w-5xl mx-auto space-y-8 pb-20 px-4 sm:px-6">
+      <div className="max-w-5xl mx-auto space-y-8 pb-20 px-4 md:px-0">
         <div className="space-y-3">
-          <Skeleton className="w-64 h-10" />
-          <Skeleton className="w-96 h-4" />
+          <Skeleton className="w-64 h-10 rounded-[8px]" />
+          <Skeleton className="w-96 h-4 rounded-[4px]" />
         </div>
-        <div className="bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8">
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8">
           <div className="flex items-center gap-4 mb-6">
-            <Skeleton className="w-14 h-14 rounded-2xl" />
+            <Skeleton className="w-14 h-14 rounded-[8px]" />
             <div className="space-y-2 flex-1">
-              <Skeleton className="w-40 h-5" />
-              <Skeleton className="w-64 h-3" />
+              <Skeleton className="w-40 h-5 rounded-[4px]" />
+              <Skeleton className="w-64 h-3 rounded-[4px]" />
             </div>
           </div>
-          <Skeleton className="w-full h-12 rounded-xl" />
+          <Skeleton className="w-full h-12 rounded-[8px]" />
         </div>
-        <div className="bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-8">
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8">
           <div className="flex items-center gap-4 mb-6">
-            <Skeleton className="w-14 h-14 rounded-2xl" />
+            <Skeleton className="w-14 h-14 rounded-[8px]" />
             <div className="space-y-2 flex-1">
-              <Skeleton className="w-40 h-5" />
-              <Skeleton className="w-64 h-3" />
+              <Skeleton className="w-40 h-5 rounded-[4px]" />
+              <Skeleton className="w-64 h-3 rounded-[4px]" />
             </div>
           </div>
           <Skeleton className="w-full h-4 rounded-full mb-4" />
-          <Skeleton className="w-48 h-3" />
+          <Skeleton className="w-48 h-3 rounded-[4px]" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out pb-20 px-4 sm:px-6">
+    <div className="max-w-5xl mx-auto space-y-8 fade-in duration-500 pb-20 px-4 md:px-0">
       <div>
-        <h1 className="text-3xl md:text-5xl font-extrabold tracking-tighter text-zinc-900 dark:text-white">UPI Safety Hub</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2 max-w-xl leading-relaxed">
-          RBI/NPCI mandated safety controls — Emergency Kill Switch and Annual Receiving Limits.
+        <h1 className="text-[32px] md:text-[40px] font-light tracking-tight text-[#0A2540] m-0">UPI Safety Hub</h1>
+        <p className="text-[14px] md:text-[15px] text-[#425466] mt-2 max-w-xl leading-[1.6]">
+          RBI mandated safety controls — Emergency Kill Switch and Annual Receiving Limits.
         </p>
       </div>
 
       {/* ═══ EMERGENCY KILL SWITCH ═══ */}
       <section className="relative">
-        <div className={`p-6 sm:p-8 rounded-3xl border-2 transition-all duration-500 ${
+        <div className={`p-6 sm:p-8 rounded-[16px] border transition-all duration-300 ${
           killSwitch?.active
-            ? 'bg-red-500/5 border-red-500/40 shadow-[0_0_60px_rgba(239,68,68,0.15)]'
-            : 'bg-white dark:bg-[#0c0c0d] border-zinc-200 dark:border-white/5'
+            ? 'bg-[#fff5f5] border-[#ffcdcd] shadow-[0_4px_15px_rgba(223,27,65,0.08)]'
+            : 'bg-white border-[#e3e8ee] shadow-[0_2px_5px_rgba(0,0,0,0.02)]'
         }`}>
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
             <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${
-                killSwitch?.active ? 'bg-red-500/20' : 'bg-zinc-100 dark:bg-white/5'
+              <div className={`w-12 h-12 rounded-[8px] flex items-center justify-center shrink-0 transition-colors ${
+                killSwitch?.active ? 'bg-[#df1b41]/10' : 'bg-[#f6f9fc] border border-[#e3e8ee]'
               }`}>
-                <span className={`material-symbols-outlined text-3xl ${killSwitch?.active ? 'text-red-500 animate-pulse' : 'text-zinc-400'}`}>
+                <span className={`material-symbols-outlined text-[24px] ${killSwitch?.active ? 'text-[#df1b41]' : 'text-[#6B7C93]'}`}>
                   power_settings_new
                 </span>
               </div>
               <div>
-                <h2 className="text-xl font-black text-zinc-900 dark:text-white tracking-tight">Emergency Kill Switch</h2>
-                <p className="text-xs text-zinc-500 mt-0.5">Instantly freeze all outgoing UPI payments</p>
+                <h2 className="text-[18px] font-medium text-[#0A2540]">Emergency Kill Switch</h2>
+                <p className="text-[13px] text-[#6B7C93] mt-0.5">Instantly freeze all outgoing payments</p>
               </div>
             </div>
-            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border self-start ${
+            <div className={`px-3 py-1 rounded-[4px] text-[10px] font-bold uppercase tracking-wider self-start flex items-center gap-2 border ${
               killSwitch?.active
-                ? 'bg-red-500/10 border-red-500/30 text-red-500'
-                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                ? 'bg-[#fff5f5] border-[#ffcdcd] text-[#df1b41]'
+                : 'bg-[#e7f9ed] border-[#0CBF4C]/20 text-[#0CBF4C]'
             }`}>
-              <span className={`inline-block w-2 h-2 rounded-full mr-2 ${killSwitch?.active ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full ${killSwitch?.active ? 'bg-[#df1b41] animate-pulse' : 'bg-[#0CBF4C]'}`}></span>
               {killSwitch?.active ? 'ACTIVATED' : 'INACTIVE'}
             </div>
           </div>
 
           {killSwitch?.active ? (
-            <div className="space-y-4">
-              <div className="p-4 bg-red-500/5 rounded-2xl border border-red-500/10">
-                <p className="text-sm text-red-400 font-bold">
-                  🚨 All outgoing payments are suspended. No funds can leave your account.
+            <div className="space-y-5">
+              <div className="p-4 bg-white border border-[#ffcdcd] rounded-[8px] shadow-[0_1px_2px_rgba(223,27,65,0.05)]">
+                <p className="text-[13px] text-[#df1b41] font-semibold flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px]">warning</span>
+                  All outgoing payments are suspended. No funds can leave your account.
                 </p>
                 {killSwitch.activated_at && (
-                  <p className="text-[10px] text-zinc-500 mt-2 font-mono">
+                  <p className="text-[11px] text-[#6B7C93] mt-1 font-mono">
                     Activated: {new Date(killSwitch.activated_at).toLocaleString()}
                   </p>
                 )}
               </div>
               {!showDeactivate ? (
                 <button onClick={() => setShowDeactivate(true)}
-                  className="px-6 py-3 bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-zinc-200 dark:hover:bg-white/10 transition-all"
+                  className="px-6 py-2.5 bg-white border border-[#e3e8ee] hover:bg-[#f6f9fc] text-[#0A2540] font-medium rounded-[8px] text-[14px] transition-colors"
                 >Deactivate Kill Switch</button>
               ) : (
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                   <input type="password" value={deactivatePin} onChange={e => setDeactivatePin(e.target.value)}
                     placeholder="Enter PIN to deactivate" maxLength={6}
-                    className="flex-1 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/5 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-indigo-500 transition-all" />
+                    className="flex-1 bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] font-mono outline-none focus:border-[#635BFF] transition-all" />
                   <button onClick={handleDeactivateKS} disabled={loadingKS}
-                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-50">
-                    {loadingKS ? 'Verifying...' : 'Confirm'}
+                    className="px-6 py-3 bg-[#0A2540] hover:bg-[#112F4E] text-white rounded-[8px] text-[14px] font-medium transition-colors disabled:opacity-50">
+                    {loadingKS ? 'Verifying...' : 'Confirm PIN'}
                   </button>
                   <button onClick={() => { setShowDeactivate(false); setDeactivatePin(''); }}
-                    className="px-4 py-3 text-zinc-400 hover:text-zinc-600 transition-colors self-center">
+                    className="px-4 py-3 bg-white border border-[#e3e8ee] text-[#6B7C93] hover:bg-[#f6f9fc] rounded-[8px] transition-colors self-center">
                     <span className="material-symbols-outlined text-lg">close</span>
                   </button>
                 </div>
@@ -175,13 +175,13 @@ export function UPISafety() {
             </div>
           ) : (
             <button onClick={handleActivateKS} disabled={loadingKS}
-              className="w-full py-5 bg-red-600 hover:bg-red-700 text-white shadow-2xl shadow-red-500/20 font-black uppercase tracking-widest rounded-2xl text-[12px] transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3 group overflow-hidden relative">
+              className="w-full py-3.5 bg-white border border-[#df1b41] hover:bg-[#fff5f5] text-[#df1b41] font-medium rounded-[8px] text-[14px] transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
               {loadingKS ? (
-                <span className="flex items-center gap-3"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Processing...</span>
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-[#df1b41]/30 border-t-[#df1b41] rounded-full animate-spin"></span> Processing...</span>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-xl">emergency</span>
-                  Activate Emergency Kill Switch
+                  <span className="material-symbols-outlined text-[18px]">emergency</span>
+                  Activate Kill Switch
                 </>
               )}
             </button>
@@ -191,64 +191,64 @@ export function UPISafety() {
 
       {/* ═══ ANNUAL RECEIVING LIMIT ═══ */}
       <section>
-        <div className="bg-white dark:bg-[#0c0c0d] border border-zinc-200 dark:border-white/5 rounded-3xl p-6 sm:p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-amber-500 text-xl">account_balance_wallet</span>
+        <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 sm:p-8 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 rounded-[8px] bg-[#f6f9fc] border border-[#e3e8ee] flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#6B7C93] text-[24px]">account_balance_wallet</span>
             </div>
             <div>
-              <h3 className="text-lg font-black text-zinc-900 dark:text-white tracking-tight">Annual Receiving Limit</h3>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">₹25 Lakh Fiscal Year Cap</p>
+              <h3 className="text-[18px] font-medium text-[#0A2540]">Annual Receiving Limit</h3>
+              <p className="text-[13px] text-[#6B7C93] mt-0.5">₹25 Lakh Fiscal Year Cap</p>
             </div>
           </div>
 
           {annualLimit && (
-            <div className="space-y-5">
+            <div className="space-y-6">
               <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-zinc-500 font-bold">FY {annualLimit.fiscal_year || '—'}</span>
-                  <span className={`font-black ${annualLimit.is_frozen ? 'text-red-500' : 'text-zinc-900 dark:text-white'}`}>
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-[#425466] font-medium">FY {annualLimit.fiscal_year || '—'} Utilization</span>
+                  <span className={`font-semibold font-mono ${annualLimit.is_frozen ? 'text-[#df1b41]' : 'text-[#0A2540]'}`}>
                     {formatINR(annualLimit.annual_received)} / {formatINR(annualLimit.annual_limit)}
                   </span>
                 </div>
-                <div className="w-full h-3 bg-zinc-100 dark:bg-white/5 rounded-full overflow-hidden">
+                <div className="w-full h-2.5 bg-[#e3e8ee] rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-1000 ${
-                      annualPercent >= 100 ? 'bg-red-500' : annualPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                      annualPercent >= 100 ? 'bg-[#df1b41]' : annualPercent >= 80 ? 'bg-[#ff6118]' : 'bg-[#0CBF4C]'
                     }`}
                     style={{ width: `${annualPercent}%` }}
                   />
                 </div>
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-zinc-400 font-bold">{annualPercent.toFixed(1)}% utilized</span>
-                  <span className="text-zinc-400 font-bold">Remaining: {formatINR(annualLimit.remaining)}</span>
+                <div className="flex justify-between text-[11px] font-medium text-[#6B7C93]">
+                  <span>{annualPercent.toFixed(1)}% utilized</span>
+                  <span>Headroom: {formatINR(annualLimit.remaining)}</span>
                 </div>
               </div>
 
               {annualLimit.is_frozen && (
-                <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-2xl">
-                  <p className="text-xs text-red-400 font-bold flex items-center gap-2">
-                    <span className="material-symbols-outlined text-sm">lock</span>
-                    Account FROZEN — Visit your bank to explain the source of funds.
+                <div className="p-4 bg-[#fff5f5] border border-[#ffcdcd] rounded-[8px]">
+                  <p className="text-[13px] text-[#df1b41] font-semibold flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[16px]">lock</span>
+                    Account FROZEN. You have exceeded the annual receiving limits.
                   </p>
                 </div>
               )}
 
               {/* Key Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-zinc-100 dark:border-white/5">
-                <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-100 dark:border-white/5">
-                  <p className="text-[8px] text-zinc-400 uppercase tracking-widest font-black">Status</p>
-                  <p className={`text-sm font-black mt-1 ${annualLimit.is_frozen ? 'text-red-500' : 'text-emerald-500'}`}>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 border-t border-[#e3e8ee]">
+                <div className="p-4 rounded-[8px] bg-[#f6f9fc] border border-[#e3e8ee]">
+                  <p className="text-[10px] text-[#6B7C93] uppercase font-bold tracking-wider">Status</p>
+                  <p className={`text-[16px] font-medium mt-1 ${annualLimit.is_frozen ? 'text-[#df1b41]' : 'text-[#0CBF4C]'}`}>
                     {annualLimit.is_frozen ? 'FROZEN' : 'ACTIVE'}
                   </p>
                 </div>
-                <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-100 dark:border-white/5">
-                  <p className="text-[8px] text-zinc-400 uppercase tracking-widest font-black">Total Received</p>
-                  <p className="text-sm font-black mt-1 text-zinc-900 dark:text-white">{formatINR(annualLimit.annual_received)}</p>
+                <div className="p-4 rounded-[8px] bg-[#f6f9fc] border border-[#e3e8ee]">
+                  <p className="text-[10px] text-[#6B7C93] uppercase font-bold tracking-wider">Total Received</p>
+                  <p className="text-[16px] font-medium text-[#0A2540] mt-1">{formatINR(annualLimit.annual_received)}</p>
                 </div>
-                <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-100 dark:border-white/5">
-                  <p className="text-[8px] text-zinc-400 uppercase tracking-widest font-black">Headroom</p>
-                  <p className="text-sm font-black mt-1 text-zinc-900 dark:text-white">{formatINR(annualLimit.remaining)}</p>
+                <div className="p-4 rounded-[8px] bg-[#f6f9fc] border border-[#e3e8ee]">
+                  <p className="text-[10px] text-[#6B7C93] uppercase font-bold tracking-wider">Remaining</p>
+                  <p className="text-[16px] font-medium text-[#0A2540] mt-1">{formatINR(annualLimit.remaining)}</p>
                 </div>
               </div>
             </div>

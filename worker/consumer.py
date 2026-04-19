@@ -41,6 +41,45 @@ MAX_RETRIES = 3
 engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_size=5, max_overflow=5)
 WorkerSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# Neo4j graph driver (initialised in main())
+_neo4j_driver = None
+
+
+async def _ingest_neo4j(event: dict) -> None:
+    """Ingest a transfer event into Neo4j as Account nodes + TRANSFERRED edge."""
+    if _neo4j_driver is None:
+        return  # Neo4j not connected; skip silently
+
+    from neo4j import AsyncGraphDatabase
+
+    cypher = """
+    MERGE (s:Account {account_id: $sender_id})
+    ON CREATE SET s.label = $sender_id, s.first_seen = datetime()
+    SET s.last_active = datetime()
+
+    MERGE (r:Account {account_id: $receiver_id})
+    ON CREATE SET r.label = $receiver_id, r.first_seen = datetime()
+    SET r.last_active = datetime()
+
+    MERGE (s)-[t:TRANSFERRED {transfer_id: $transfer_id}]->(r)
+    ON CREATE SET t.amount     = $amount,
+                  t.status     = $status,
+                  t.risk_score = $risk_score,
+                  t.rules      = $rules,
+                  t.created_at = toString(datetime())
+    """
+    async with _neo4j_driver.session() as session:
+        await session.run(
+            cypher,
+            sender_id=event.get("sender_account_id", ""),
+            receiver_id=event.get("receiver_account_id", ""),
+            transfer_id=event.get("transfer_id", ""),
+            amount=event.get("amount", 0),
+            status=event.get("status", "UNKNOWN"),
+            risk_score=event.get("risk_score", 0.0) or 0.0,
+            rules=event.get("rules_triggered", []) or [],
+        )
+
 
 def _get_death_count(message: aio_pika.abc.AbstractIncomingMessage) -> int:
     x_death = message.headers.get("x-death") if message.headers else None
@@ -169,7 +208,7 @@ async def _update_daily_stats(db: AsyncSession, event: dict) -> None:
 
 
 async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None:
-    """Process a single transfer event — create notifications + update analytics."""
+    """Process a single transfer event — create notifications + update analytics + ingest graph."""
     try:
         body = json.loads(message.body.decode())
         
@@ -196,6 +235,12 @@ async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None
             await _create_notifications(db, body)
             await _update_daily_stats(db, body)
             await db.commit()
+
+        # ── Neo4j graph ingestion (fire-and-forget with error isolation) ──
+        try:
+            await _ingest_neo4j(body)
+        except Exception as neo_exc:
+            logger.error("Neo4j ingestion failed (non-fatal): %s", neo_exc)
 
         logger.info("Event processed: %s", body.get("transfer_id"))
         await message.ack()
@@ -229,7 +274,8 @@ async def process_dlq_message(message: aio_pika.abc.AbstractIncomingMessage) -> 
 
 
 async def main() -> None:
-    """Connect to RabbitMQ and consume messages from main queue + DLQ."""
+    """Connect to RabbitMQ + Neo4j and consume messages from main queue + DLQ."""
+    global _neo4j_driver
     logger.info("Async worker starting — waiting for RabbitMQ...")
 
     connection = None
@@ -246,6 +292,21 @@ async def main() -> None:
         sys.exit(1)
 
     logger.info("Connected to RabbitMQ")
+
+    # ── Neo4j connection ──
+    try:
+        from neo4j import AsyncGraphDatabase
+        _neo4j_driver = AsyncGraphDatabase.driver(
+            settings.NEO4J_URI,
+            auth=(settings.NEO4J_USER, settings.NEO4J_PASS),
+            max_connection_pool_size=10,
+        )
+        await _neo4j_driver.verify_connectivity()
+        logger.info("✅ Neo4j driver connected — graph ingestion active")
+    except Exception as neo_exc:
+        logger.warning("⚠️  Neo4j connection failed (%s) — graph ingestion disabled", neo_exc)
+        _neo4j_driver = None
+
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=10)
 
@@ -277,6 +338,9 @@ async def main() -> None:
     finally:
         await connection.close()
         await http_client.aclose()
+        if _neo4j_driver:
+            await _neo4j_driver.close()
+            logger.info("Neo4j driver closed")
 
 
 if __name__ == "__main__":

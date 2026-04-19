@@ -12,7 +12,7 @@ across all PDF viewers without requiring embedded Unicode fonts.
 """
 
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from reportlab.lib import colors
@@ -133,7 +133,7 @@ def generate_statement_pdf(
 
     right_header = [
         [Paragraph("STATEMENT DATE", s_right_label)],
-        [Paragraph(datetime.utcnow().strftime("%d %b %Y"), s_right_value)],
+        [Paragraph(datetime.now(timezone.utc).strftime("%d %b %Y"), s_right_value)],
         [Spacer(1, 2 * mm)],
         [Paragraph("PERIOD", s_right_label)],
         [Paragraph(f"{start_date.strftime('%d %b %Y')}  -  {end_date.strftime('%d %b %Y')}", s_right_value)],

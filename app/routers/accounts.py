@@ -66,24 +66,36 @@ async def get_my_primary_account(
     return await resolve_account("me", user, db)
 
 
+TREASURY_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
+
+
 @router.get("/directory", response_model=list[DirectoryOut])
 async def get_account_directory(
     query: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List other bank accounts with optional username/ID filtering."""
+    """List other bank accounts with optional username/ID filtering.
+
+    Security filters applied:
+      1. Excludes the currently authenticated user (prevents self-transfers).
+      2. Excludes ADMIN role users.
+      3. Excludes the System/Treasury account (prevents transfers to internal ledger).
+    """
     stmt = (
         select(User.username, Account.id, Account.account_type)
         .join(Account, User.id == Account.owner_id)
         .where(User.id != user.id)
         .where(User.role != 'ADMIN')
+        .where(Account.id != TREASURY_ACCOUNT_ID)
     )
     
     if query:
+        # Escape SQL LIKE wildcards to prevent enumeration via % or _ injection
+        safe_query = query.replace("%", r"\%").replace("_", r"\_")
         # Case-insensitive search on username or exact match on ID
         stmt = stmt.where(
-            (User.username.ilike(f"%{query}%")) | (Account.id == query)
+            (User.username.ilike(f"%{safe_query}%", escape="\\")) | (Account.id == query)
         )
         
     result = await db.execute(stmt.limit(10))
@@ -126,10 +138,54 @@ async def deposit(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Deposit money into an account (supports 'me' shortcut)."""
+    """Deposit money into an account (supports 'me' shortcut).
+
+    Creates a formal ledger CREDIT entry and audit trail so that
+    deposits are visible in reconciliation and PDF statements.
+    """
+    import uuid as _uuid
+    from app.models import Transfer, LedgerEntry
+    from app.services.audit import create_audit_entry
+
     account = await resolve_account(account_id, user, db)
 
+    # Update balance
     account.balance += body.amount
+
+    # Create a synthetic Transfer record to satisfy ledger FK constraints
+    deposit_transfer_id = str(_uuid.uuid4())
+    deposit_transfer = Transfer(
+        id=deposit_transfer_id,
+        sender_account_id=account.id,     # self-referencing for deposits
+        receiver_account_id=account.id,
+        amount=body.amount,
+        status="COMPLETED",
+        risk_score=0.0,
+    )
+    db.add(deposit_transfer)
+    await db.flush()
+
+    # Create CREDIT ledger entry
+    ledger_entry = LedgerEntry(
+        transfer_id=deposit_transfer_id,
+        account_id=account.id,
+        entry_type="CREDIT",
+        amount=body.amount,
+        balance_after=account.balance,
+    )
+    db.add(ledger_entry)
+
+    # SHA-256 hash-chained audit trail
+    try:
+        await create_audit_entry(db, deposit_transfer_id, "MANUAL_DEPOSIT", {
+            "account_id": account.id,
+            "user_id": user.id,
+            "amount": body.amount,
+            "balance_after": account.balance,
+        })
+    except Exception:
+        pass  # Audit is best-effort — don't block the deposit
+
     await db.commit()
     await db.refresh(account)
 
@@ -146,7 +202,7 @@ async def deposit(
 from passlib.context import CryptContext as _KSCrypt
 from app.schemas import KillSwitchToggle, KillSwitchResponse, AnnualLimitStatus
 from app.config import settings as _ks_settings
-from datetime import datetime as _ks_dt
+from datetime import datetime as _ks_dt, timezone as _ks_tz
 
 _ks_ctx = _KSCrypt(schemes=["bcrypt"], deprecated="auto")
 
@@ -162,7 +218,7 @@ async def activate_kill_switch(
     phone is hacked or are in an emergency situation. No PIN required to activate.
     """
     user.kill_switch_active = True
-    user.kill_switch_activated_at = _ks_dt.utcnow()
+    user.kill_switch_activated_at = _ks_dt.now(_ks_tz.utc)
     await db.commit()
 
     return KillSwitchResponse(

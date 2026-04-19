@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # ── Redis ──
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # ── Neo4j (Graph DB) ──
+    NEO4J_URI: str = "bolt://neo4j:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASS: str = "sentinel_neo4j_2024"
+
     # ── Fraud Detection — Rule Engine Defaults ──
     FRAUD_AMOUNT_THRESHOLD: float = 50_000.0
     FRAUD_VELOCITY_MAX: int = 5             # max transfers per window
@@ -46,7 +51,7 @@ class Settings(BaseSettings):
     RECONCILIATION_INTERVAL_HOURS: int = 24
 
     # ── Runtime toggles & security ──
-    ENABLE_CHAOS_ENDPOINTS: bool = True
+    ENABLE_CHAOS_ENDPOINTS: bool = False
     ADMIN_SECRET_KEY: str = "change-me-in-production"
     ALLOWED_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 

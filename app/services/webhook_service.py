@@ -6,7 +6,7 @@ import hmac
 import hashlib
 import asyncio
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
@@ -53,7 +53,7 @@ async def _send_to_endpoint(endpoint: WebhookEndpoint, payload: dict):
         "Content-Type": "application/json",
         "X-SentinelClear-Signature": signature,
         "X-SentinelClear-Event": payload.get("event", "transfer.event"),
-        "X-SentinelClear-Timestamp": datetime.utcnow().isoformat()
+        "X-SentinelClear-Timestamp": datetime.now(timezone.utc).isoformat()
     }
     
     try:
