@@ -1,3 +1,4 @@
+version: "3.9"
 
 services:
   # ─────────────────── PostgreSQL ───────────────────
@@ -10,7 +11,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinelclear"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -44,15 +45,16 @@ services:
       timeout: 3s
       retries: 10
 
-  # ─────────────────── Neo4j (Graph DB) ───────────────────
+  # ─────────────────── Neo4j ───────────────────
   neo4j:
     image: neo4j:5-community
     container_name: neo4j
     ports:
       - "7474:7474"
       - "7687:7687"
+    env_file: .env
     environment:
-      - NEO4J_AUTH=neo4j/sentinel_neo4j_2024
+      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASS}
       - NEO4J_PLUGINS=["apoc"]
     volumes:
       - neo4j_data:/data
@@ -77,12 +79,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
-      - DATABASE_URL=postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear
-      - REDIS_URL=redis://redis:6379/0
-      - RABBITMQ_URL=amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/
-      - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASS=sentinel_neo4j_2024
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER}
+      - NEO4J_PASS=${NEO4J_PASS}
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -93,7 +95,18 @@ services:
       neo4j:
         condition: service_healthy
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      sh -c "
+      until alembic upgrade head; do
+        echo 'Waiting for DB...';
+        sleep 3;
+      done;
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: on-failure
 
   # ─────────────────── Async Worker ───────────────────
@@ -104,12 +117,12 @@ services:
     container_name: async-worker
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear
-      - REDIS_URL=redis://redis:6379/0
-      - RABBITMQ_URL=amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/
-      - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASS=sentinel_neo4j_2024
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER}
+      - NEO4J_PASS=${NEO4J_PASS}
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -134,11 +147,9 @@ services:
   grafana:
     image: grafana/grafana:10.4.1
     container_name: grafana
+    env_file: .env
     ports:
       - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
