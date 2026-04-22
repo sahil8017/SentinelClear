@@ -12,6 +12,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
@@ -98,7 +99,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 15
+      start_period: 60s
     restart: on-failure
 
   async-worker:
