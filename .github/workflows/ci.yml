@@ -16,7 +16,10 @@ jobs:
       - name: Start services
         run: docker compose up -d --build
       - name: Wait for API health
-        run: sleep 20 && curl --retry 10 --retry-delay 2 -f http://localhost/api/health
+        run: sleep 30 && curl --retry 15 --retry-delay 5 --retry-all-errors -f http://localhost/api/health
+      - name: Dump Docker logs on failure
+        if: failure()
+        run: docker compose logs api-gateway
       - name: Run Python tests
         run: docker compose exec -T api-gateway python tests/test_everything.py
       - name: Tear down
