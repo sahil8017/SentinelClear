@@ -9,37 +9,65 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Copy env file
         run: cp .env.example .env
+
       - name: Start services
         run: docker compose up -d --build
+
+      - name: Show running containers
+        run: docker compose ps
+
       - name: Wait for API health
-        run: sleep 30 && curl --retry 15 --retry-delay 5 --retry-all-errors -f http://localhost/api/health
-      - name: Dump Docker logs on failure
-        if: failure()
-        run: docker compose logs api-gateway
+        run: |
+          echo "Waiting for API..."
+
+          for i in {1..30}; do
+            if curl -s -f http://localhost:8000/health > /dev/null; then
+              echo "API is ready"
+              exit 0
+            fi
+            echo "Retry $i..."
+            sleep 5
+          done
+
+          echo "API failed to start"
+          docker compose logs
+          exit 1
+
       - name: Run Python tests
         run: docker compose exec -T api-gateway python tests/test_everything.py
+
+      - name: Dump Docker logs on failure
+        if: failure()
+        run: docker compose logs
+
       - name: Tear down
         if: always()
         run: docker compose down -v
 
   build-frontend:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      # Mock the frontend build since it's not created yet, 
-      # but we have it as a task. We'll skip making it fail for now if dir doesn't exist
+
       - name: Install and Build
         run: |
           if [ -d "frontend" ]; then
-            cd frontend && npm ci && npm run build
+            cd frontend
+            npm ci
+            npm run build
           else
             echo "Frontend directory not found, skipping..."
           fi
