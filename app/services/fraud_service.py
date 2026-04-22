@@ -81,7 +81,9 @@ async def evaluate_transfer_risk(
         rolling_vel = row_vel or 0
 
     # 3. UPI Daily Volume Limit (₹1,00,000)
-    if (rolling_vol + amount) > 100000:
+    # Skip UPI-specific limits for high-value transfers that route through
+    # Maker-Checker approval (RTGS/NEFT), since NPCI UPI caps don't apply.
+    if amount < settings.MAKER_CHECKER_THRESHOLD and (rolling_vol + amount) > 100000:
         logger.warning(
             "Transfer blocked by NPCI Velocity Rule [DAILY_VOLUME_NPCI]: Account %s, amount=₹%.2f, rolling_vol=₹%.2f",
             sender_account_id, amount, rolling_vol
@@ -94,7 +96,7 @@ async def evaluate_transfer_risk(
         }
 
     # 4. UPI Daily Velocity Limit (20 txns)
-    if rolling_vel >= 20:
+    if amount < settings.MAKER_CHECKER_THRESHOLD and rolling_vel >= 20:
         logger.warning(
             "Transfer blocked by NPCI Velocity Rule [DAILY_VELOCITY_NPCI]: Account %s, rolling_vel=%d",
             sender_account_id, rolling_vel
@@ -119,7 +121,7 @@ async def evaluate_transfer_risk(
     is_new_beneficiary = False
     if not beneficiary:
         is_new_beneficiary = True
-        if amount > 50000:
+        if amount > 50000 and amount < settings.MAKER_CHECKER_THRESHOLD:
             return {
                 "is_blocked": True,
                 "block_reason": "Transfers to new/unsaved beneficiaries are capped at ₹50,000 during the first 24 hours.",
@@ -139,7 +141,7 @@ async def evaluate_transfer_risk(
         # It exists, check if it's less than 24h old
         if beneficiary.created_at >= twenty_four_hours_ago:
             is_new_beneficiary = True
-            if amount > 50000:
+            if amount > 50000 and amount < settings.MAKER_CHECKER_THRESHOLD:
                 return {
                     "is_blocked": True,
                     "block_reason": "Cooling-Off Period Active: Transfers to beneficiaries added within 24 hours are capped at ₹50,000.",

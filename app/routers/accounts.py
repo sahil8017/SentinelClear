@@ -148,19 +148,39 @@ async def deposit(
     from app.services.audit import create_audit_entry
 
     account = await resolve_account(account_id, user, db)
-
     # Update balances: DEBIT Treasury (-), CREDIT User (+)
     TREASURY_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
     account.balance += body.amount
     
-    # Update Treasury account if it exists
+    # Update Treasury account if it exists, otherwise create it
     res_treasury = await db.execute(select(Account).where(Account.id == TREASURY_ACCOUNT_ID))
     treasury = res_treasury.scalar_one_or_none()
-    if treasury:
-        treasury.balance -= body.amount
-        treasury_balance_after = treasury.balance
-    else:
-        treasury_balance_after = 0.0
+    
+    if not treasury:
+        # We need a system owner for the treasury account. Let's find or create a system user.
+        res_system_user = await db.execute(select(User).where(User.username == "system"))
+        system_user = res_system_user.scalar_one_or_none()
+        if not system_user:
+            system_user = User(
+                username="system",
+                email="system@sentinelclear.local",
+                hashed_password="not_a_real_password",
+                role="ADMIN"
+            )
+            db.add(system_user)
+            await db.flush()
+            
+        treasury = Account(
+            id=TREASURY_ACCOUNT_ID,
+            owner_id=system_user.id,
+            account_type="treasury",
+            balance=0.0
+        )
+        db.add(treasury)
+        await db.flush()
+
+    treasury.balance -= body.amount
+    treasury_balance_after = treasury.balance
 
     # Create synthetic Transfer record
     deposit_transfer_id = str(_uuid.uuid4())

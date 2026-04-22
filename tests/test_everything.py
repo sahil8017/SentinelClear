@@ -78,6 +78,13 @@ async def promote_bob_to_admin(username: str):
     await conn.execute("UPDATE users SET role = 'ADMIN' WHERE username = $1", username)
     await conn.close()
 
+async def verify_kyc(username: str):
+    db_url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear")
+    db_url = db_url.replace("+asyncpg", "")
+    conn = await asyncpg.connect(db_url)
+    await conn.execute("UPDATE users SET kyc_status = 'PAN_VERIFIED' WHERE username = $1", username)
+    await conn.close()
+
 async def test_websocket_auth(token: str) -> int:
     if not websockets:
         return 0
@@ -200,6 +207,10 @@ def main():
     asyncio.run(promote_bob_to_admin(BOB_USER))
     print("  ✓ Promoted Bob to ADMIN via DB injection")
 
+    # Verify KYC for Alice so she can transfer > 50k without PAN block
+    asyncio.run(verify_kyc(ALICE_USER))
+    print("  ✓ Verified KYC for Alice via DB injection")
+
     # Re-login Bob to get a fresh Admin JWT with "role=ADMIN" in the payload
     r = client.post("/auth/login", json={"username": BOB_USER, "password": PASSWORD})
     bob_token = r.json().get("access_token", "")
@@ -280,11 +291,11 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 9.5 MAKER-CHECKER LOGIC")
     # ──────────────────────────────────────────────────────────────
-    r_mc = client.post(f"/accounts/{alice_acct}/deposit", json={"amount": 70000}, headers=alice_headers)
+    r_mc = client.post(f"/accounts/{alice_acct}/deposit", json={"amount": 700000}, headers=alice_headers)
     r_mc = client.post("/transfers", json={
         "sender_account_id": alice_acct,
         "receiver_account_id": bob_acct,
-        "amount": 60000,
+        "amount": 600000,
     }, headers={**alice_headers, "Idempotency-Key": str(uuid.uuid4())})
     test("Transfer > Limit requires approval → 202", r_mc.status_code == 202)
     mc_transfer_id = r_mc.json().get("id", "")
@@ -325,11 +336,12 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 13. INSUFFICIENT BALANCE")
     # ──────────────────────────────────────────────────────────────
+    # Use Bob as sender (balance ~₹10k) with amount < Maker-Checker threshold
     r = client.post("/transfers", json={
-        "sender_account_id": alice_acct,
-        "receiver_account_id": bob_acct,
-        "amount": 999999,
-    }, headers=alice_headers)
+        "sender_account_id": bob_acct,
+        "receiver_account_id": alice_acct,
+        "amount": 49000,
+    }, headers=bob_headers)
     test("Insufficient/flagged → 400 or 403", r.status_code in (400, 403))
 
     # ──────────────────────────────────────────────────────────────
@@ -338,7 +350,7 @@ def main():
     r = client.post("/transfers", json={
         "sender_account_id": alice_acct,
         "receiver_account_id": bob_acct,
-        "amount": 75000,
+        "amount": 45000,
     }, headers=alice_headers)
     if r.status_code == 403:
         test("Large transfer → 403 FLAGGED by rule engine", True)
