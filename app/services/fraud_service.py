@@ -58,7 +58,7 @@ async def evaluate_transfer_risk(
         }
 
     # Query 24-hour transfers for Velocity and Volume
-    twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    twenty_four_hours_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
     
     recent_transfers_stmt = select(
         func.sum(Transfer.amount),
@@ -66,6 +66,7 @@ async def evaluate_transfer_risk(
     ).where(
         and_(
             Transfer.sender_account_id == sender_account_id,
+            Transfer.sender_account_id != Transfer.receiver_account_id,
             Transfer.status == "COMPLETED",
             Transfer.created_at >= twenty_four_hours_ago
         )
@@ -174,7 +175,7 @@ async def evaluate_transfer_risk(
     
     # 1. Split-Structuring Detection (Smurfing)
     # 3 rapid transfers of ≈19k+ within 10 minutes to same recipient
-    ten_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+    ten_mins_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
     rapid_transfers_stmt = select(func.count(Transfer.id)).where(
         and_(
             Transfer.sender_account_id == sender_account_id,

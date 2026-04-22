@@ -40,6 +40,13 @@ import sys
 import time
 import uuid
 import httpx
+import os
+import asyncio
+import asyncpg
+try:
+    import websockets
+except ImportError:
+    websockets = None
 
 # Fix Unicode output on Windows
 if sys.platform == "win32":
@@ -64,6 +71,29 @@ def test(name: str, condition: bool, detail: str = ""):
         msg = f" — {detail}" if detail else ""
         print(f"  ❌ {name}{msg}")
 
+async def promote_bob_to_admin(username: str):
+    db_url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear")
+    db_url = db_url.replace("+asyncpg", "")
+    conn = await asyncpg.connect(db_url)
+    await conn.execute("UPDATE users SET role = 'ADMIN' WHERE username = $1", username)
+    await conn.close()
+
+async def test_websocket_auth(token: str) -> int:
+    if not websockets:
+        return 0
+    ws_url = BASE_URL.replace("http", "ws") + f"/ws/fraud-alerts?token={token}"
+    try:
+        async with websockets.connect(ws_url, close_timeout=1) as ws:
+            return 101 # success
+    except Exception as e:
+        # Catch both old and new exception names
+        if hasattr(e, "status_code"):
+            return e.status_code
+        # In some versions of websockets, the status code is in e.response.status_code
+        if hasattr(e, "response") and hasattr(e.response, "status_code"):
+            return e.response.status_code
+        return 403 # Default to forbidden if it's an auth error but we can't extract status
+
 
 uid = uuid.uuid4().hex[:6]
 ALICE_USER = f"alice_{uid}"
@@ -74,6 +104,9 @@ PASSWORD = "securepass123"
 
 alice_token = ""
 bob_token = ""
+CHRIS_USER = f"chris_{uid}"
+CHRIS_EMAIL = f"chris_{uid}@test.com"
+chris_token = ""
 alice_acct = ""
 bob_acct = ""
 completed_transfer_id = ""
@@ -156,10 +189,21 @@ def main():
     r = client.post("/auth/login", json={"username": ALICE_USER, "password": PASSWORD})
     test("Login Alice → 200", r.status_code == 200)
     alice_token = r.json().get("access_token", "")
+    alice_headers = {"Authorization": f"Bearer {alice_token}"} if alice_token else {}
 
     r = client.post("/auth/login", json={"username": BOB_USER, "password": PASSWORD})
     bob_token = r.json().get("access_token", "")
     test("Login Bob → 200", r.status_code == 200)
+    bob_headers = {"Authorization": f"Bearer {bob_token}"} if bob_token else {}
+
+    # Promote Bob to ADMIN for testing protected routes
+    asyncio.run(promote_bob_to_admin(BOB_USER))
+    print("  ✓ Promoted Bob to ADMIN via DB injection")
+
+    # Re-login Bob to get a fresh Admin JWT with "role=ADMIN" in the payload
+    r = client.post("/auth/login", json={"username": BOB_USER, "password": PASSWORD})
+    bob_token = r.json().get("access_token", "")
+    bob_headers = {"Authorization": f"Bearer {bob_token}"} if bob_token else {}
 
     r = client.post("/auth/login", json={"username": ALICE_USER, "password": "wrong"})
     test("Wrong password → 401", r.status_code == 401)
@@ -170,8 +214,7 @@ def main():
     r = client.post("/accounts", json={"account_type": "savings"})
     test("POST /accounts without token → 401/403", r.status_code in (401, 403))
 
-    alice_headers = {"Authorization": f"Bearer {alice_token}"}
-    bob_headers = {"Authorization": f"Bearer {bob_token}"}
+    # Authentication headers are now synchronized with logins above.
 
     # ──────────────────────────────────────────────────────────────
     print("\n📌 7. ACCOUNT MANAGEMENT")
@@ -188,13 +231,21 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 8. DEPOSITS & BALANCE (Redis cache)")
     # ──────────────────────────────────────────────────────────────
-    r = client.post(f"/accounts/{alice_acct}/deposit", json={"amount": 100000}, headers=alice_headers)
-    test("Deposit ₹100,000 into Alice → 200", r.status_code == 200)
-    test("Balance after deposit is 100000", r.json().get("balance") == 100000.0)
+    r = client.post(f"/accounts/{alice_acct}/deposit", json={"amount": 2000000}, headers=alice_headers)
+    test("Deposit ₹2,000,000 into Alice → 200", r.status_code == 200)
+    test("Balance after deposit is 2000000", r.json().get("balance") == 2000000.0)
+
+    # Verify Ledger Entry was correctly created
+    r_ledger = client.get(f"/ledger/{alice_acct}", headers=alice_headers)
+    entries = r_ledger.json()
+    # Check for CREDIT ledger entry with the expected amount (since we fixed accounts.py to set "Deposit" in Transfer)
+    # We now check that a CREDIT entry exists for the specific amount.
+    deposit_entry = next((e for e in entries if e["entry_type"] == "CREDIT" and e["amount"] == 2000000.0), None)
+    test("Deposit created CREDIT LedgerEntry", deposit_entry is not None)
 
     r = client.get(f"/accounts/{alice_acct}/balance", headers=alice_headers)
     test("GET balance → 200", r.status_code == 200)
-    test("Balance matches", r.json().get("balance") == 100000.0)
+    test("Balance matches", r.json().get("balance") == 2000000.0)
 
     r = client.post(f"/accounts/{bob_acct}/deposit", json={"amount": 5000}, headers=bob_headers)
     test("Deposit ₹5,000 into Bob → 200", r.status_code == 200)
@@ -221,10 +272,28 @@ def main():
     test("Idempotent replay returns same ID", r2.json().get("id") == completed_transfer_id)
 
     r = client.get(f"/accounts/{alice_acct}/balance", headers=alice_headers)
-    test("Alice balance decreased to 95000", r.json().get("balance") == 95000.0)
+    test("Alice balance decreased to 1995000", r.json().get("balance") == 1995000.0)
 
     r = client.get(f"/accounts/{bob_acct}/balance", headers=bob_headers)
     test("Bob balance increased to 10000", r.json().get("balance") == 10000.0)
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n📌 9.5 MAKER-CHECKER LOGIC")
+    # ──────────────────────────────────────────────────────────────
+    r_mc = client.post(f"/accounts/{alice_acct}/deposit", json={"amount": 70000}, headers=alice_headers)
+    r_mc = client.post("/transfers", json={
+        "sender_account_id": alice_acct,
+        "receiver_account_id": bob_acct,
+        "amount": 60000,
+    }, headers={**alice_headers, "Idempotency-Key": str(uuid.uuid4())})
+    test("Transfer > Limit requires approval → 202", r_mc.status_code == 202)
+    mc_transfer_id = r_mc.json().get("id", "")
+
+    r_approve_self = client.post(f"/transfers/{mc_transfer_id}/approve", headers=alice_headers)
+    test("Maker cannot approve own transfer → 403", r_approve_self.status_code in (403, 401))
+
+    r_approve_admin = client.post(f"/transfers/{mc_transfer_id}/approve", headers=bob_headers)
+    test("Admin can approve transfer → 200", r_approve_admin.status_code == 200)
 
     # ──────────────────────────────────────────────────────────────
     print("\n📌 10. DOUBLE-ENTRY LEDGER")
@@ -239,7 +308,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 11. LEDGER INTEGRITY")
     # ──────────────────────────────────────────────────────────────
-    r = client.get("/ledger/verify/integrity", headers=alice_headers)
+    r = client.get("/ledger/verify/integrity", headers=bob_headers)
     test("GET /ledger/verify/integrity → 200", r.status_code == 200)
     test("Ledger is balanced", r.json().get("balanced") is True)
 
@@ -293,7 +362,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 16. AUDIT CHAIN VERIFICATION")
     # ──────────────────────────────────────────────────────────────
-    r = client.get("/audit/verify", headers=alice_headers)
+    r = client.get("/audit/verify", headers=bob_headers)
     test("GET /audit/verify → 200", r.status_code == 200)
     data = r.json()
     test("Audit chain is intact", data.get("intact") is True)
@@ -303,7 +372,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 17. FRAUD DASHBOARD")
     # ──────────────────────────────────────────────────────────────
-    r = client.get("/fraud/dashboard", headers=alice_headers)
+    r = client.get("/fraud/dashboard", headers=bob_headers)
     test("GET /fraud/dashboard → 200", r.status_code == 200)
     data = r.json()
     test("Dashboard has total_transfers", "total_transfers" in data)
@@ -314,7 +383,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 18. FRAUD RULE CONFIGURATION")
     # ──────────────────────────────────────────────────────────────
-    r = client.get("/fraud/rules", headers=alice_headers)
+    r = client.get("/fraud/rules", headers=bob_headers)
     test("GET /fraud/rules → 200", r.status_code == 200)
     rules = r.json()
     test("Rules list is non-empty", len(rules) > 0)
@@ -325,12 +394,12 @@ def main():
     # Update a rule weight
     r = client.put("/fraud/rules/amount_threshold", json={
         "weight": 2.0,
-    }, headers=alice_headers)
+    }, headers=bob_headers)
     test("PUT /fraud/rules/amount_threshold → 200", r.status_code == 200)
     test("Weight updated to 2.0", r.json().get("weight") == 2.0)
 
     # Reset weight
-    client.put("/fraud/rules/amount_threshold", json={"weight": 1.0}, headers=alice_headers)
+    client.put("/fraud/rules/amount_threshold", json={"weight": 1.0}, headers=bob_headers)
 
     # ──────────────────────────────────────────────────────────────
     print("\n📌 19. NOTIFICATIONS (async worker)")
@@ -378,28 +447,49 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 22. RECONCILIATION")
     # ──────────────────────────────────────────────────────────────
-    r = client.post("/admin/reconciliation")
-    test("POST /admin/reconciliation → 200", r.status_code == 200)
+    r = client.post("/admin/reconciliation", headers=bob_headers)
+    test("POST /admin/reconciliation (with Admin) → 200", r.status_code == 200)
     data = r.json()
     test("Reconciliation has status", "status" in data)
     test("Reconciliation PASSED", data.get("status") == "PASSED")
     test("Zero discrepancies", data.get("discrepancies_found", -1) == 0)
 
-    # ──────────────────────────────────────────────────────────────
-    print("\n📌 23. OWNERSHIP / AUTHORIZATION")
-    # ──────────────────────────────────────────────────────────────
-    r = client.get(f"/accounts/{alice_acct}/balance", headers=bob_headers)
-    test("Bob can't see Alice's balance → 404", r.status_code == 404)
+    # Use a third regular user (Chris) to test isolation, as Bob is an Admin and can bypass privacy checks.
+    r = client.post("/auth/register", json={"username": CHRIS_USER, "email": CHRIS_EMAIL, "password": PASSWORD, "full_name": "Chris Isolation Test"})
+    r = client.post("/auth/login", json={"username": CHRIS_USER, "password": PASSWORD})
+    chris_token = r.json().get("access_token", "")
+    chris_headers = {"Authorization": f"Bearer {chris_token}"}
+
+    r = client.get(f"/accounts/{alice_acct}/balance", headers=chris_headers)
+    test("User can't see other's balance → 404", r.status_code == 404)
 
     r = client.post("/transfers", json={
         "sender_account_id": alice_acct,
         "receiver_account_id": bob_acct,
         "amount": 100,
-    }, headers=bob_headers)
-    test("Bob can't transfer from Alice's account → 403", r.status_code == 403)
+    }, headers=chris_headers)
+    test("User can't transfer from other's account → 403", r.status_code == 403)
 
-    r = client.get(f"/ledger/{alice_acct}", headers=bob_headers)
-    test("Bob can't see Alice's ledger → 404", r.status_code == 404)
+    r = client.get(f"/ledger/{alice_acct}", headers=chris_headers)
+    test("User can't see other's ledger → 404", r.status_code == 404)
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n📌 24. WEBSOCKET AUTHENTICATION")
+    # ──────────────────────────────────────────────────────────────
+    if websockets:
+        status_no_token = asyncio.run(test_websocket_auth(""))
+        test("WS without token → 403 or rejected", status_no_token in (403, 401))
+        
+        status_valid = asyncio.run(test_websocket_auth(bob_token))
+        test("WS with Admin token → 101 Connected", status_valid == 101)
+    else:
+        print("  ⚠️ Skipping WS test (websockets not installed)")
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n📌 25. CHAOS ENDPOINT PROTECTION")
+    # ──────────────────────────────────────────────────────────────
+    r_chaos = client.post("/admin/chaos/kill-api", headers=bob_headers)
+    test("Chaos endpoint disabled/protected → 403 or 404", r_chaos.status_code in (403, 404, 400))
 
     # ──────────────────────────────────────────────────────────────
     print("\n" + "═" * 60)

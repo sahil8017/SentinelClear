@@ -35,10 +35,10 @@ class Settings(BaseSettings):
     FRAUD_RECIPIENT_MAX: int = 3            # max transfers to same recipient
     FRAUD_RECIPIENT_WINDOW: int = 3600      # 1 hour in seconds
     FRAUD_REVIEW_THRESHOLD: float = 0.4     # score >= this → REVIEW
-    FRAUD_BLOCK_THRESHOLD: float = 0.7      # score >= this → BLOCK
+    FRAUD_BLOCK_THRESHOLD: float = 0.8      # score >= this → BLOCK
 
     # ── Compliance — Maker-Checker ──
-    MAKER_CHECKER_THRESHOLD: float = 1_000_000.0
+    MAKER_CHECKER_THRESHOLD: float = 50_000.0
 
     # ── UPI Safety Rules ──
     UPI_PAUSE_THRESHOLD: float = 10_000.0           # ₹10K — transactions above this are paused

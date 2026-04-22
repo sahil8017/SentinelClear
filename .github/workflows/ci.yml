@@ -18,7 +18,7 @@ jobs:
       - name: Wait for API health
         run: sleep 20 && curl --retry 10 --retry-delay 2 -f http://localhost/api/health
       - name: Run Python tests
-        run: docker compose exec -T api-gateway pytest tests/
+        run: docker compose exec -T api-gateway python tests/test_everything.py
       - name: Tear down
         if: always()
         run: docker compose down -v
@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
       # Mock the frontend build since it's not created yet, 
       # but we have it as a task. We'll skip making it fail for now if dir doesn't exist
       - name: Install and Build

@@ -120,7 +120,7 @@ async def run_reconciliation(db: AsyncSession) -> dict:
 
     # Store the result
     log_entry = ReconciliationLog(
-        run_at=datetime.now(timezone.utc),
+        run_at=datetime.now(timezone.utc).replace(tzinfo=None),
         total_accounts=total_accounts,
         accounts_checked=accounts_checked,
         discrepancies_found=len(discrepancies),

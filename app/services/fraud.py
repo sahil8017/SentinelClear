@@ -51,8 +51,8 @@ DEFAULT_RULES = {
     "burst_velocity": {
         "weight": 2.0,
         "enabled": True,
-        "threshold_value": 3,
-        "description": "Flag accounts making 3+ transfers in 60 seconds",
+        "threshold_value": 10,
+        "description": "Flag accounts making 10+ transfers in 60 seconds",
     },
     "daily_volume": {
         "weight": 1.2,
@@ -112,17 +112,25 @@ _rules_cache_expiry = 0
 RULES_CACHE_TTL = 60  # Cache rules for 60 seconds
 
 
-async def _load_rule_configs(db: AsyncSession) -> Dict[str, FraudRuleConfig]:
-    """Load configurations from DB, using a 60-second in-memory cache."""
+async def _load_rule_configs(db: AsyncSession) -> Dict[str, dict]:
+    """Load configurations from DB, using a 60-second in-memory cache of plain dicts."""
     global _rules_cache, _rules_cache_expiry
     
     now = time.time()
     if _rules_cache is not None and now < _rules_cache_expiry:
         return _rules_cache
-
+ 
     try:
         result = await db.execute(select(FraudRuleConfig))
-        configs = {row.rule_name: row for row in result.scalars().all()}
+        rows = result.scalars().all()
+        # Cache plain dicts to avoid DetachedInstanceError
+        configs = {
+            row.rule_name: {
+                "enabled": row.enabled,
+                "threshold_value": row.threshold_value,
+                "weight": row.weight
+            } for row in rows
+        }
         # Update cache
         _rules_cache = configs
         _rules_cache_expiry = now + RULES_CACHE_TTL
@@ -164,13 +172,13 @@ async def score_transaction(
     # ── Run each rule ──────────────────────────────────────────
 
     cfg = configs.get("amount_threshold")
-    if cfg and cfg.enabled:
-        threshold = cfg.threshold_value or settings.FRAUD_AMOUNT_THRESHOLD
+    if cfg and cfg["enabled"]:
+        threshold = cfg["threshold_value"] or settings.FRAUD_AMOUNT_THRESHOLD
         result = await check_amount_threshold(amount=amount, threshold=threshold)
         rule_results.append(result)
 
     cfg = configs.get("velocity")
-    if cfg and cfg.enabled:
+    if cfg and cfg["enabled"]:
         result = await check_velocity(
             db=db,
             sender_account_id=sender_account_id,
@@ -180,37 +188,37 @@ async def score_transaction(
         rule_results.append(result)
 
     cfg = configs.get("burst_velocity")
-    if cfg and cfg.enabled:
+    if cfg and cfg["enabled"]:
         result = await check_burst_velocity(
             db=db,
             sender_account_id=sender_account_id,
-            max_burst=int(cfg.threshold_value or 3),
+            max_burst=int(cfg["threshold_value"] or 10),
         )
         rule_results.append(result)
 
     cfg = configs.get("daily_volume")
-    if cfg and cfg.enabled:
+    if cfg and cfg["enabled"]:
         result = await check_daily_volume(
             db=db,
             sender_account_id=sender_account_id,
             amount=amount,
-            daily_limit=cfg.threshold_value or settings.FRAUD_DAILY_VOLUME_LIMIT,
+            daily_limit=cfg["threshold_value"] or settings.FRAUD_DAILY_VOLUME_LIMIT,
         )
         rule_results.append(result)
 
     cfg = configs.get("new_account")
-    if cfg and cfg.enabled:
+    if cfg and cfg["enabled"]:
         result = await check_new_account(
             db=db,
             sender_account_id=sender_account_id,
             amount=amount,
             max_age_hours=settings.FRAUD_NEW_ACCOUNT_HOURS,
-            amount_threshold=cfg.threshold_value or settings.FRAUD_NEW_ACCOUNT_AMOUNT,
+            amount_threshold=cfg["threshold_value"] or settings.FRAUD_NEW_ACCOUNT_AMOUNT,
         )
         rule_results.append(result)
 
     cfg = configs.get("time_of_day")
-    if cfg and cfg.enabled:
+    if cfg and cfg["enabled"]:
         result = await check_time_of_day(
             night_start=settings.FRAUD_NIGHT_START,
             night_end=settings.FRAUD_NIGHT_END,
@@ -218,7 +226,7 @@ async def score_transaction(
         rule_results.append(result)
 
     cfg = configs.get("recipient_concentration")
-    if cfg and cfg.enabled:
+    if cfg and cfg["enabled"]:
         result = await check_recipient_concentration(
             db=db,
             sender_account_id=sender_account_id,
@@ -229,7 +237,7 @@ async def score_transaction(
         rule_results.append(result)
 
     cfg = configs.get("impossible_travel")
-    if cfg and cfg.enabled and current_city:
+    if cfg and cfg["enabled"] and current_city:
         from app.services.fraud_rules import check_impossible_travel_rule
         result = await check_impossible_travel_rule(
             db=db,

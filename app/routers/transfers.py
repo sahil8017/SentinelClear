@@ -44,7 +44,7 @@ async def _upsert_snapshot(db: AsyncSession, account_id: str, balance: float) ->
     snap = result.scalar_one_or_none()
     if snap:
         snap.balance = balance
-        snap.snapshot_at = datetime.now(timezone.utc)
+        snap.snapshot_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         snap = BalanceSnapshot(account_id=account_id, balance=balance)
         db.add(snap)
@@ -83,6 +83,10 @@ async def create_transfer(
     # ══════════════════════════════════════════════════════════════
     # STEP 0: SENDER RESOLUTION & IDEMPOTENCY
     # ══════════════════════════════════════════════════════════════
+    # Pre-emptively bind attributes that might be detached later by commits
+    u_id = user.id
+    trusted_person_id = user.trusted_person_id
+ 
     # Always resolve sender account for balance access by fraud engine
     if not body.sender_account_id:
         result = await db.execute(
@@ -209,7 +213,7 @@ async def create_transfer(
         ml_risk_score = 0.0
 
     # ── LAYER 2: Predictive Risk Quarantine (FLAGGED footprint) ──
-    if risk_score >= settings.FRAUD_BLOCK_THRESHOLD:
+    if risk_score >= settings.FRAUD_BLOCK_THRESHOLD and body.amount < settings.MAKER_CHECKER_THRESHOLD:
         # ── Fraud BLOCKED → FLAGGED (no balance change) ──
         transfer = Transfer(
             id=transfer_id,
@@ -366,17 +370,16 @@ async def create_transfer(
             # Defer balance updates and immediately return success payload indicating pending
             await db.commit()
             await db.refresh(transfer)
-            webhook_payload = {
-                "event": "transfer.pending_approval",
-                "transfer_id": transfer.id,
-                "amount": transfer.amount,
-                "status": "PENDING_APPROVAL"
-            }
-            try:
-                await dispatch_webhook(user.id, webhook_payload)
-            except Exception:
-                pass
-            return transfer
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "id": transfer.id,  # Compatibility with test script
+                    "status": "PENDING_APPROVAL",
+                    "transfer_id": transfer.id,
+                    "amount": transfer.amount,
+                    "detail": "High-value transfer requires administrative approval (Maker-Checker).",
+                },
+            )
 
         if needs_guardian:
             # UPI Safety Rule 2: Defer until trusted person approves
@@ -386,7 +389,7 @@ async def create_transfer(
             # Send notification to trusted person
             try:
                 guardian_notif = Notification(
-                    user_id=user.trusted_person_id,
+                    user_id=trusted_person_id,
                     title="Guardian Approval Required",
                     message=(
                         f"A transaction of ₹{body.amount:,.2f} by a vulnerable account holder "
@@ -466,6 +469,7 @@ async def create_transfer(
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception(f"CRITICAL: Transfer {transfer_id} failed with exception: {exc}")
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Transfer failed: {str(exc)}")
 
@@ -517,7 +521,7 @@ async def create_transfer(
             "status": "COMPLETED",
             "created_at": transfer.created_at.isoformat() if transfer.created_at else datetime.now(timezone.utc).isoformat()
         }
-        await dispatch_webhook(user.id, webhook_payload)
+        await dispatch_webhook(u_id, webhook_payload)
     except Exception:
         pass  # Webhook failure is non-critical
 

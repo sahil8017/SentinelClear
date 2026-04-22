@@ -149,31 +149,49 @@ async def deposit(
 
     account = await resolve_account(account_id, user, db)
 
-    # Update balance
+    # Update balances: DEBIT Treasury (-), CREDIT User (+)
+    TREASURY_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
     account.balance += body.amount
+    
+    # Update Treasury account if it exists
+    res_treasury = await db.execute(select(Account).where(Account.id == TREASURY_ACCOUNT_ID))
+    treasury = res_treasury.scalar_one_or_none()
+    if treasury:
+        treasury.balance -= body.amount
+        treasury_balance_after = treasury.balance
+    else:
+        treasury_balance_after = 0.0
 
-    # Create a synthetic Transfer record to satisfy ledger FK constraints
+    # Create synthetic Transfer record
     deposit_transfer_id = str(_uuid.uuid4())
     deposit_transfer = Transfer(
         id=deposit_transfer_id,
-        sender_account_id=account.id,     # self-referencing for deposits
+        sender_account_id=TREASURY_ACCOUNT_ID,
         receiver_account_id=account.id,
         amount=body.amount,
         status="COMPLETED",
         risk_score=0.0,
+        reference="Deposit",
     )
     db.add(deposit_transfer)
     await db.flush()
 
-    # Create CREDIT ledger entry
-    ledger_entry = LedgerEntry(
+    # ── Double-Entry: DEBIT Treasury, CREDIT User ──
+    debit_entry = LedgerEntry(
+        transfer_id=deposit_transfer_id,
+        account_id=TREASURY_ACCOUNT_ID,
+        entry_type="DEBIT",
+        amount=body.amount,
+        balance_after=treasury_balance_after,
+    )
+    credit_entry = LedgerEntry(
         transfer_id=deposit_transfer_id,
         account_id=account.id,
         entry_type="CREDIT",
         amount=body.amount,
         balance_after=account.balance,
     )
-    db.add(ledger_entry)
+    db.add_all([debit_entry, credit_entry])
 
     # SHA-256 hash-chained audit trail
     try:

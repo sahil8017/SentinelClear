@@ -32,18 +32,23 @@ async def create_audit_entry(
     previous_hash = last_entry.current_hash if last_entry else GENESIS_HASH
 
     details_json = json.dumps(details_dict, sort_keys=True, default=str)
-    now = datetime.now(timezone.utc)
-    timestamp_str = now.isoformat()
-
-    current_hash = _compute_hash(previous_hash, transfer_id, action, details_json, timestamp_str)
-
+    # Separation of Concerns: 
+    # 1. Hashing requires strict UTC format string
+    now_aware = datetime.now(timezone.utc).replace(microsecond=0)
+    ts_val = now_aware.strftime("%Y%m%d%H%M%S")
+ 
+    # 2. Persistence requires naive datetime for current schema
+    now_naive = now_aware.replace(tzinfo=None)
+ 
+    current_hash = _compute_hash(previous_hash, transfer_id, action, details_json, ts_val)
+ 
     entry = AuditLog(
         transfer_id=transfer_id,
         action=action,
         details=details_json,
         previous_hash=previous_hash,
         current_hash=current_hash,
-        created_at=now,
+        created_at=now_naive,
     )
     db.add(entry)
     await db.flush()
@@ -89,12 +94,13 @@ async def verify_chain(db: AsyncSession) -> dict:
                 "message": f"Tamper detected at entry #{entry.id} — previous_hash linkage broken",
             }
 
+        ts_val = entry.created_at.strftime("%Y%m%d%H%M%S")
         recomputed = _compute_hash(
             entry.previous_hash,
             entry.transfer_id,
             entry.action,
             entry.details,
-            entry.created_at.isoformat(),
+            ts_val,
         )
         if entry.current_hash != recomputed:
             return {

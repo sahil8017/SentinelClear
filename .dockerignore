@@ -28,11 +28,6 @@ frontend/.vite/
 *.pkl
 app/ml/data/
 
-# Tests
-tests/
-frontend/tests/
-_test_*
-
 # Documentation
 *.pdf
 

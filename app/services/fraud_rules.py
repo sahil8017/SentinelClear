@@ -79,7 +79,7 @@ async def check_velocity(
     **kwargs,
 ) -> RuleResult:
     """Flag accounts making too many transfers in a sliding window."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=window_seconds)
 
     result = await db.execute(
         select(func.count(Transfer.id))
@@ -124,7 +124,7 @@ async def check_burst_velocity(
     **kwargs,
 ) -> RuleResult:
     """Flag accounts making 3+ transfers in 60 seconds."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=60)
 
     result = await db.execute(
         select(func.count(Transfer.id))
@@ -166,13 +166,14 @@ async def check_daily_volume(
     **kwargs,
 ) -> RuleResult:
     """Flag when cumulative daily outflow exceeds configured limit."""
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
     result = await db.execute(
         select(func.coalesce(func.sum(Transfer.amount), 0.0))
         .where(
             and_(
                 Transfer.sender_account_id == sender_account_id,
+                Transfer.sender_account_id != Transfer.receiver_account_id,
                 Transfer.created_at >= today_start,
                 Transfer.status == "COMPLETED",
             )
@@ -226,7 +227,7 @@ async def check_new_account(
             reason="Account not found",
         )
 
-    age = datetime.now(timezone.utc) - created_at
+    age = datetime.now(timezone.utc).replace(tzinfo=None) - created_at
     age_hours = age.total_seconds() / 3600
 
     if age_hours >= max_age_hours or amount <= amount_threshold:
@@ -291,7 +292,7 @@ async def check_recipient_concentration(
     **kwargs,
 ) -> RuleResult:
     """Flag repeated transfers to the same recipient — potential structuring."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=window_seconds)
 
     result = await db.execute(
         select(func.count(Transfer.id))
@@ -355,7 +356,7 @@ async def check_impossible_travel_rule(
     if not last_transfer or not last_transfer.source_city:
         return RuleResult(rule_name="impossible_travel", triggered=False, score=0.0, reason="No previous location history")
 
-    time_delta = (datetime.now(timezone.utc) - last_transfer.created_at).total_seconds()
+    time_delta = (datetime.now(timezone.utc).replace(tzinfo=None) - last_transfer.created_at).total_seconds()
     
     geo_res = check_impossible_travel(
         current_city=current_city,

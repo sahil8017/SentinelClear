@@ -19,6 +19,7 @@ COPY --from=builder /install /usr/local
 COPY app/ app/
 COPY alembic/ alembic/
 COPY alembic.ini .
+COPY tests/ tests/
 
 # Exclude training scripts and data but keep the trained model
 RUN rm -rf app/ml/data/ app/ml/train_loan_model.py app/ml/generate_dataset.py

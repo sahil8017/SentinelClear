@@ -52,7 +52,7 @@ class FirebaseLoginRequest(BaseModel):
     token: str = Field(..., description="Firebase ID Token explicitly received via Frontend popup")
 
 def _create_token(user_id: int, role: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     return jwt.encode(
         {"sub": str(user_id), "role": role, "exp": expire},
         settings.JWT_SECRET_KEY,

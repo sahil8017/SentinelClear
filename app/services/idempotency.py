@@ -35,7 +35,7 @@ async def check_or_create_key(
         return {"action": "new"}
 
     # Check TTL — expired keys are treated as new
-    if existing.created_at < datetime.now(timezone.utc) - timedelta(hours=IDEMPOTENCY_TTL_HOURS):
+    if existing.created_at < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=IDEMPOTENCY_TTL_HOURS):
         await db.delete(existing)
         await db.flush()
         entry = IdempotencyKey(key=key, user_id=user_id, status="PENDING")

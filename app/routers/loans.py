@@ -61,7 +61,7 @@ async def create_or_update_credit_profile(
     avg_balance = 0.0
     if accounts:
         oldest = accounts[0]
-        delta = datetime.now(timezone.utc) - oldest.created_at
+        delta = datetime.now(timezone.utc).replace(tzinfo=None) - oldest.created_at
         account_age_months = max(int(delta.days / 30), 1)
         avg_balance = sum(a.balance for a in accounts) / len(accounts)
 
@@ -230,7 +230,7 @@ async def check_loan_eligibility(
     profile.ml_eligibility_score = assessment["ml_eligibility_score"]
     profile.ml_risk_category = assessment["ml_risk_category"]
     profile.ml_explanation = json.dumps(assessment["explanation"])
-    profile.last_assessed_at = datetime.now(timezone.utc)
+    profile.last_assessed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.commit()
 
     return CreditAssessmentOut(
@@ -326,7 +326,7 @@ async def create_loan_application(
     profile.ml_eligibility_score = assessment["ml_eligibility_score"]
     profile.ml_risk_category = assessment["ml_risk_category"]
     profile.ml_explanation = json.dumps(assessment["explanation"])
-    profile.last_assessed_at = datetime.now(timezone.utc)
+    profile.last_assessed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Auto-reject VERY_HIGH risk (credit score < 450 or FOIR > 70%)
     if assessment["ml_risk_category"] == "VERY_HIGH":

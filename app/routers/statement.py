@@ -38,7 +38,7 @@ async def download_statement(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found or not yours")
 
-    end_date = datetime.now(timezone.utc)
+    end_date = datetime.now(timezone.utc).replace(tzinfo=None)
     start_date = end_date - timedelta(days=days)
 
     # Fetch ledger entries for the period

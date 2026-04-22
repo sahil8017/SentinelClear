@@ -14,7 +14,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)
 
-**A production-grade ACID-compliant double-entry ledger system with a 3-layer ML risk engine,
+**A production-grade ACID-compliant double-entry ledger system with an advanced heuristic risk engine,
 Neo4j-powered AML graph topology analysis, and full Indian regulatory compliance (RBI/NPCI/FIU).**
 
 Built for financial institutions that demand cryptographic audit integrity, real-time fraud interception,
@@ -41,7 +41,7 @@ graph TB
     end
 
     subgraph Compute
-        D[Fraud Engine<br/>3-Layer Risk Scoring]
+        D[Fraud Engine<br/>Heuristic & Regulatory Scoring]
         E[Lending Engine<br/>ML Credit Scoring]
         F[UPI Safety Module<br/>RBI/NPCI Compliance]
     end
@@ -99,13 +99,12 @@ graph TB
 - **Automated reconciliation engine** — scheduled balance verification recomputes every account from raw ledger entries and flags sub-paisa discrepancies
 - **PDF statement generation** — bank-grade ReportLab statements with running balances, summary cards, and audit chain hash footer
 
-### 🧠 3-Layer Risk Engine
+### 🧠 Layered Risk Engine
 
-| Layer | Mechanism | Coverage |
-|-------|-----------|----------|
-| **Layer 1** | Indian Regulatory Hard Blocks | PAN Mandate (§114B), RTGS floor (₹2L), UPI daily cap (₹1L), NPCI velocity (20 txn/day), Beneficiary cooling-off |
-| **Layer 2** | ML Predictive Scoring | Random Forest classifier trained on PaySim synthetic dataset, 58% calibration baseline, Explainable AI (XAI) feature attribution |
-| **Layer 3** | Heuristic Anomaly Detection | Split-structuring (smurfing), account drain prediction, burst velocity, time-of-day analysis, recipient concentration, impossible travel detection |
+| Strategy | Mechanism | Coverage |
+|----------|-----------|----------|
+| **Regulatory Blocks** | Indian Banking Mandates | PAN Mandate (§114B), RTGS floor (₹2L), UPI daily cap (₹1L), NPCI velocity (20 txn/day), Beneficiary cooling-off |
+| **Heuristic Detection** | Real-time Behavioral Analysis | Split-structuring (smurfing), account drain prediction, burst velocity, time-of-day analysis, recipient concentration, impossible travel detection |
 
 - Real-time composite risk score `[0.0, 1.0]` with configurable review (`≥0.4`) and block (`≥0.7`) thresholds
 - **Impossible Travel Detection** — Haversine geospatial velocity analysis flags transactions from physically impossible locations (e.g., Mumbai → Delhi in 2 minutes)
@@ -148,7 +147,7 @@ graph TB
 | **Cache & Rate Limiting** | Redis 7 + Hiredis | Balance caching, sliding-window rate limiter |
 | **Message Broker** | RabbitMQ 3.13 | Durable event bus with DLQ and retry backoff |
 | **Authentication** | JWT (HS256) + Firebase SSO | Dual auth: native credentials + Google/GitHub SSO |
-| **ML Pipeline** | scikit-learn + pandas | Random Forest credit scoring & fraud detection |
+| **ML Pipeline** | scikit-learn + pandas | Random Forest credit scoring |
 | **PDF Engine** | ReportLab | Bank-grade statements & FIU STR reports |
 | **Monitoring** | Prometheus + Grafana | Real-time metrics, dashboards, alerting |
 | **Reverse Proxy** | Nginx | TLS termination, static assets, WebSocket upgrade |
