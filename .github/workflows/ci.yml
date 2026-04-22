@@ -11,8 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Copy env file
         run: cp .env.example .env
@@ -20,34 +19,23 @@ jobs:
       - name: Start services
         run: docker compose up -d --build
 
-      - name: Show running containers
-        run: docker compose ps
-
       - name: Wait for API health
         run: |
           echo "Waiting for API..."
-
           for i in {1..30}; do
             if curl -s -f http://localhost:8000/health > /dev/null; then
               echo "API is ready"
               exit 0
             fi
-            echo "Retry $i..."
             sleep 5
           done
-
-          echo "API failed to start"
           docker compose logs
           exit 1
 
       - name: Run Python tests
         run: docker compose exec -T api-gateway python tests/test_everything.py
 
-      - name: Dump Docker logs on failure
-        if: failure()
-        run: docker compose logs
-
-      - name: Tear down
+      - name: Cleanup
         if: always()
         run: docker compose down -v
 
@@ -57,17 +45,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install and Build
+      - name: Build frontend
         run: |
           if [ -d "frontend" ]; then
-            cd frontend
-            npm ci
-            npm run build
+            cd frontend && npm ci && npm run build
           else
-            echo "Frontend directory not found, skipping..."
+            echo "No frontend, skipping"
           fi
