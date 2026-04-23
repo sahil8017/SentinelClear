@@ -33,16 +33,24 @@ from app.services.rate_limit import login_limiter, register_limiter
 
 # Natively initialize Firebase Admin context.
 # Prefer an explicit credential path from GOOGLE_APPLICATION_CREDENTIALS.
+_firebase_available = False
 if not firebase_admin._apps:
     credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service-account.json")
     if not os.path.isfile(credentials_path):
-        raise RuntimeError(
-            "Firebase Admin credentials file is missing. Set GOOGLE_APPLICATION_CREDENTIALS or place service-account.json in the project root."
+        logger.warning(
+            "Firebase Admin credentials file not found at '%s'. "
+            "Firebase SSO login will be unavailable. Set GOOGLE_APPLICATION_CREDENTIALS "
+            "or place service-account.json in the project root.",
+            credentials_path,
         )
-    try:
-        firebase_admin.initialize_app(credentials.Certificate(credentials_path))
-    except Exception as e:
-        raise RuntimeError(f"Firebase Admin initialization failed: {e}")
+    else:
+        try:
+            firebase_admin.initialize_app(credentials.Certificate(credentials_path))
+            _firebase_available = True
+        except Exception as e:
+            logger.warning("Firebase Admin initialization failed: %s — SSO login disabled", e)
+else:
+    _firebase_available = True
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -123,6 +131,11 @@ async def firebase_login(
     _rate: None = Depends(login_limiter),
 ):
     """Complete Zero-Trust Verification executing the raw Firebase ID natively."""
+    if not _firebase_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Firebase SSO is not configured. Contact administrator.",
+        )
     try:
         # 1. Decode and verify signature asynchronously against Google's public instances
         decoded_token = await asyncio.to_thread(firebase_auth.verify_id_token, body.token)

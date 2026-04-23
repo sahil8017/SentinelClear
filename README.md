@@ -187,6 +187,16 @@ cd SentinelClear
 docker-compose up -d --build
 ```
 
+### CI Validation (Local)
+
+```bash
+bash scripts/ci-validate.sh
+```
+
+```powershell
+.\scripts\ci-validate.ps1
+```
+
 ### Local Access Points
 
 | Service | URL | Credentials |

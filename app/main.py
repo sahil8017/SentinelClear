@@ -1,9 +1,11 @@
 """SentinelClear — FastAPI application entry-point."""
 
 import logging
+import httpx
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from passlib.context import CryptContext
@@ -43,6 +45,21 @@ async def lifespan(app: FastAPI):
     # Seed default transaction PINs for demo users who don't have one
     _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     async with AsyncSessionLocal() as db:
+        # ── Seed Admin User ──
+        admin_result = await db.execute(select(User).where(User.username == settings.ADMIN_USERNAME))
+        admin_user = admin_result.scalar_one_or_none()
+        if not admin_user:
+            admin_user = User(
+                username=settings.ADMIN_USERNAME,
+                email=settings.ADMIN_EMAIL,
+                hashed_password=_pwd.hash(settings.ADMIN_PASSWORD),
+                role="ADMIN",
+                profile_complete=True
+            )
+            db.add(admin_user)
+            await db.commit()
+            logger.info("✅ Seeded default admin account: %s", settings.ADMIN_USERNAME)
+
         result = await db.execute(select(User).where(User.transaction_pin_hash.is_(None)))
         users_without_pin = result.scalars().all()
         for u in users_without_pin:
@@ -176,11 +193,12 @@ else:
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Check connectivity to PostgreSQL, RabbitMQ, and Redis."""
+    """Check connectivity to core dependencies and optional observability services."""
     db_status = "healthy"
     rmq_status = "healthy"
     redis_status = "healthy"
     neo4j_status = "healthy"
+    grafana_status = "healthy"
 
     try:
         async with AsyncSessionLocal() as session:
@@ -206,15 +224,37 @@ async def health_check():
     except Exception:
         neo4j_status = "unhealthy"
 
-    all_healthy = all(s == "healthy" for s in [db_status, rmq_status, redis_status, neo4j_status])
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(settings.GRAFANA_URL)
+            if response.status_code != status.HTTP_200_OK:
+                grafana_status = "unhealthy"
+    except Exception:
+        grafana_status = "unhealthy"
+
+    # Core services: DB, RabbitMQ, Redis — must be healthy for API to function
+    core_services = [db_status, rmq_status, redis_status]
+    core_healthy = all(s == "healthy" for s in core_services)
+    # Neo4j and Grafana are optional — AML graph and dashboards degrade gracefully
+    grafana_required_healthy = (
+        grafana_status == "healthy" if settings.REQUIRE_GRAFANA_FOR_HEALTH else True
+    )
+    all_healthy = core_healthy and grafana_required_healthy
     overall = "healthy" if all_healthy else "degraded"
-    return {
+    payload = {
         "status": overall,
         "database": db_status,
         "rabbitmq": rmq_status,
         "redis": redis_status,
         "neo4j": neo4j_status,
+        "grafana": grafana_status,
+        "checks": {
+            "require_grafana_for_health": settings.REQUIRE_GRAFANA_FOR_HEALTH,
+            "grafana_url": settings.GRAFANA_URL,
+        },
     }
+    status_code = status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 # ────────────────────────────── Reconciliation (Manual Trigger) ──────────────────────────────

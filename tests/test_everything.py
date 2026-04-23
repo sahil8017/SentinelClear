@@ -416,12 +416,18 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 19. NOTIFICATIONS (async worker)")
     # ──────────────────────────────────────────────────────────────
-    # Give the async worker time to process events
-    time.sleep(3)
+    # Give the async worker time to process events (poll to reduce CI flakiness)
+    notifications = []
+    r = None
+    for _ in range(10):
+        r = client.get("/notifications", headers=alice_headers)
+        if r.status_code == 200:
+            notifications = r.json()
+            if len(notifications) > 0:
+                break
+        time.sleep(2)
 
-    r = client.get("/notifications", headers=alice_headers)
-    test("GET /notifications → 200", r.status_code == 200)
-    notifications = r.json()
+    test("GET /notifications → 200", r is not None and r.status_code == 200)
     test("Notifications exist", len(notifications) > 0)
     if notifications:
         test("Notification has title", "title" in notifications[0])

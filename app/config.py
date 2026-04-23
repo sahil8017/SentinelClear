@@ -53,7 +53,14 @@ class Settings(BaseSettings):
     # ── Runtime toggles & security ──
     ENABLE_CHAOS_ENDPOINTS: bool = False
     ADMIN_SECRET_KEY: str = "change-me-in-production"
+
+    # ── Default Admin Account (seeded on first startup) ──
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_EMAIL: str = "admin@sentinelclear.io"
+    ADMIN_PASSWORD: str = "Admin@1234"
     ALLOWED_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
+    GRAFANA_URL: str = "http://grafana:3000/api/health"
+    REQUIRE_GRAFANA_FOR_HEALTH: bool = False
 
     class Config:
         env_file = ".env"

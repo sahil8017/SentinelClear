@@ -1,0 +1,2 @@
+# Placeholder file to ensure Grafana notifier provisioning path exists in CI.
+# Grafana 10 uses contact points; keep this directory present for compatibility.

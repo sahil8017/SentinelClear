@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v4
@@ -16,24 +18,63 @@ jobs:
       - name: Copy env file
         run: cp .env.example .env
 
+      - name: Prepare build context
+        run: |
+          mkdir -p frontend/dist
+          echo '{"type":"service_account","project_id":"ci-placeholder"}' > service-account.json
+
       - name: Start services
-        run: docker compose up -d --build
+        run: |
+          docker compose up -d --build \
+            postgres-db rabbitmq redis neo4j \
+            api-gateway async-worker
 
       - name: Wait for API health
         run: |
-          echo "Waiting for API..."
-          for i in {1..60}; do
-            if curl -s -f http://localhost:8000/health > /dev/null; then
-              echo "API is ready"
+          echo "Waiting for API health..."
+          max_attempts=90
+          for i in $(seq 1 "$max_attempts"); do
+            health_response="$(curl -sS http://localhost:8000/health 2>/dev/null || true)"
+            if [ -n "$health_response" ] && echo "$health_response" | grep -q '"status":"healthy"'; then
+              echo "✅ API is healthy after attempt $i"
+              echo "$health_response" | python3 -m json.tool 2>/dev/null || echo "$health_response"
               exit 0
+            fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "Attempt $i/$max_attempts — API not healthy yet"
+              if [ -n "$health_response" ]; then
+                echo "  Response: $health_response"
+              fi
+              echo "  Container status:"
+              docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
             fi
             sleep 5
           done
-          docker compose logs
+          echo "❌ API failed health checks after $max_attempts attempts"
+          echo "=== Container Status ==="
+          docker compose ps
+          echo "=== API Gateway Logs ==="
+          docker compose logs api-gateway --tail=100
+          echo "=== Postgres Logs ==="
+          docker compose logs postgres-db --tail=50
+          echo "=== RabbitMQ Logs ==="
+          docker compose logs rabbitmq --tail=50
+          echo "=== Redis Logs ==="
+          docker compose logs redis --tail=50
+          echo "=== Neo4j Logs ==="
+          docker compose logs neo4j --tail=50
           exit 1
 
       - name: Run Python tests
         run: docker compose exec -T api-gateway python tests/test_everything.py
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          echo "=== API Gateway Logs ==="
+          docker compose logs api-gateway --tail=200
+          echo "=== Async Worker Logs ==="
+          docker compose logs async-worker --tail=100
 
       - name: Cleanup
         if: always()
@@ -41,6 +82,8 @@ jobs:
 
   build-frontend:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v4
@@ -51,8 +94,8 @@ jobs:
 
       - name: Build frontend
         run: |
-          if [ -d "frontend" ]; then
+          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
             cd frontend && npm ci && npm run build
           else
-            echo "No frontend, skipping"
+            echo "No frontend package.json, skipping"
           fi
