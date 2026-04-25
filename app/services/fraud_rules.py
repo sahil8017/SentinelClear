@@ -46,6 +46,8 @@ async def check_amount_threshold(
 
     Scores scale linearly: at threshold → 0.5, at 2× threshold → 1.0.
     """
+    amount = float(amount)
+    threshold = float(threshold)
     if amount <= threshold:
         ratio = amount / threshold if threshold > 0 else 0.0
         return RuleResult(
@@ -166,6 +168,8 @@ async def check_daily_volume(
     **kwargs,
 ) -> RuleResult:
     """Flag when cumulative daily outflow exceeds configured limit."""
+    amount = float(amount)
+    daily_limit = float(daily_limit)
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
     result = await db.execute(
@@ -214,6 +218,8 @@ async def check_new_account(
     **kwargs,
 ) -> RuleResult:
     """Flag brand-new accounts making large transfers."""
+    amount = float(amount)
+    amount_threshold = float(amount_threshold)
     result = await db.execute(
         select(Account.created_at).where(Account.id == sender_account_id)
     )

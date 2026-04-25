@@ -1,6 +1,7 @@
 """Pydantic request / response schemas for SentinelClear."""
 
 from datetime import datetime, date, timezone
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_serializer
@@ -50,7 +51,7 @@ class AccountOut(BaseModel):
     id: str
     owner_id: int
     account_type: str
-    balance: float
+    balance: Decimal
     created_at: datetime
 
     class Config:
@@ -59,7 +60,7 @@ class AccountOut(BaseModel):
 
 class BalanceOut(BaseModel):
     account_id: str
-    balance: float
+    balance: Decimal
 
 
 class DirectoryOut(BaseModel):
@@ -69,7 +70,7 @@ class DirectoryOut(BaseModel):
 
 
 class DepositRequest(BaseModel):
-    amount: float = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=0)
 
 
 # ────────────────────────────── Transfer ──────────────────────────────
@@ -78,7 +79,7 @@ class DepositRequest(BaseModel):
 class TransferRequest(BaseModel):
     sender_account_id: Optional[str] = None
     receiver_account_id: str
-    amount: float = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=0)
     currency: Optional[str] = "INR"
     reference: Optional[str] = None
     route: Optional[str] = Field(default="IMPS", description="Routing method: IMPS, NEFT, or RTGS")
@@ -89,7 +90,7 @@ class TransferOut(BaseModel):
     id: str
     sender_account_id: str
     receiver_account_id: str
-    amount: float
+    amount: Decimal
     status: str
     risk_score: Optional[float] = None
     ml_risk_score: Optional[float] = None
@@ -147,8 +148,8 @@ class LedgerEntryOut(BaseModel):
     transfer_id: str
     account_id: str
     entry_type: str
-    amount: float
-    balance_after: float
+    amount: Decimal
+    balance_after: Decimal
     created_at: datetime
 
     class Config:
@@ -157,9 +158,9 @@ class LedgerEntryOut(BaseModel):
 
 class LedgerVerifyResponse(BaseModel):
     balanced: bool
-    total_debits: float
-    total_credits: float
-    difference: float
+    total_debits: Decimal
+    total_credits: Decimal
+    difference: Decimal
     total_entries: int
     message: str
 
@@ -182,7 +183,7 @@ class FraudRuleConfigOut(BaseModel):
     rule_name: str
     weight: float
     enabled: bool
-    threshold_value: Optional[float] = None
+    threshold_value: Optional[Decimal] = None
     description: Optional[str] = None
     updated_at: datetime
 
@@ -193,7 +194,7 @@ class FraudRuleConfigOut(BaseModel):
 class FraudRuleConfigUpdate(BaseModel):
     weight: Optional[float] = Field(None, ge=0.0, le=5.0)
     enabled: Optional[bool] = None
-    threshold_value: Optional[float] = None
+    threshold_value: Optional[Decimal] = None
 
 
 # ────────────────────────────── Notifications ──────────────────────────────
@@ -222,8 +223,8 @@ class NotificationMarkRead(BaseModel):
 class DailyStatOut(BaseModel):
     account_id: str
     stat_date: date
-    total_sent: float
-    total_received: float
+    total_sent: Decimal
+    total_received: Decimal
     transfer_count: int
     flagged_count: int
 
@@ -234,9 +235,9 @@ class DailyStatOut(BaseModel):
 class AnalyticsSummary(BaseModel):
     account_id: str
     period_days: int
-    total_sent: float
-    total_received: float
-    net_flow: float
+    total_sent: Decimal
+    total_received: Decimal
+    net_flow: Decimal
     total_transfers: int
     total_flagged: int
     daily_stats: list[DailyStatOut]
@@ -299,15 +300,15 @@ class WebhookOut(BaseModel):
 
 
 class LoanCreate(BaseModel):
-    principal_amount: float = Field(..., gt=0)
+    principal_amount: Decimal = Field(..., gt=0)
     duration_months: int = Field(default=12, gt=0)
 
 
 class LoanOut(BaseModel):
     id: str
     user_id: int
-    principal_amount: float
-    outstanding_balance: float
+    principal_amount: Decimal
+    outstanding_balance: Decimal
     interest_rate: float
     status: str
     created_at: datetime
@@ -319,7 +320,7 @@ class LoanOut(BaseModel):
 class LoanRepaymentOut(BaseModel):
     id: int
     loan_id: str
-    amount: float
+    amount: Decimal
     created_at: datetime
 
     class Config:
@@ -327,7 +328,7 @@ class LoanRepaymentOut(BaseModel):
 
 
 class LoanRepaymentRequest(BaseModel):
-    amount: float = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=0)
 
 
 # ────────────────────────────── Credit Profile & Scoring ──────────────────────────────
@@ -335,9 +336,9 @@ class LoanRepaymentRequest(BaseModel):
 
 class CreditProfileCreate(BaseModel):
     """User-provided financial indicators for credit assessment."""
-    monthly_income: float = Field(..., gt=0, description="Gross monthly income in INR")
-    existing_liabilities: float = Field(default=0.0, ge=0, description="Existing monthly EMI/debt obligations")
-    total_assets: float = Field(default=0.0, ge=0, description="Total value of savings, investments, property")
+    monthly_income: Decimal = Field(..., gt=0, description="Gross monthly income in INR")
+    existing_liabilities: Decimal = Field(default=0.0, ge=0, description="Existing monthly EMI/debt obligations")
+    total_assets: Decimal = Field(default=0.0, ge=0, description="Total value of savings, investments, property")
     employment_type: str = Field(default="salaried", description="salaried, self_employed, freelancer, unemployed")
     employment_years: float = Field(default=0.0, ge=0, description="Years of employment / business tenure")
     age: int = Field(default=25, ge=18, le=80, description="Age of the applicant")
@@ -348,9 +349,9 @@ class CreditProfileCreate(BaseModel):
 class CreditProfileOut(BaseModel):
     """Full credit profile returned by the API."""
     user_id: int
-    monthly_income: float
-    existing_liabilities: float
-    total_assets: float
+    monthly_income: Decimal
+    existing_liabilities: Decimal
+    total_assets: Decimal
     employment_type: str
     employment_years: float
     age: int
@@ -358,7 +359,7 @@ class CreditProfileOut(BaseModel):
     residence_type: str
     repayment_history_score: float
     account_age_months: int
-    avg_monthly_balance: float
+    avg_monthly_balance: Decimal
     num_previous_loans: int
     num_defaults: int
     transaction_regularity: float
@@ -382,7 +383,7 @@ class CreditAssessmentOut(BaseModel):
     ml_eligibility_score: float         # Probability of loan eligibility
     ml_risk_category: str               # LOW, MEDIUM, HIGH, VERY_HIGH
     eligible: bool
-    max_eligible_amount: float          # Maximum loan principal based on risk
+    max_eligible_amount: Decimal          # Maximum loan principal based on risk
     recommended_interest_rate: float    # Risk-adjusted interest rate
     explanation: list[dict]             # XAI breakdown
     rbi_remarks: list[str]              # Regulatory observations
@@ -392,10 +393,10 @@ class LoanEligibilityOut(BaseModel):
     """Pre-approval check response — used before formal application."""
     eligible: bool
     credit_score: int
-    max_loan_amount: float
+    max_loan_amount: Decimal
     recommended_tenure_months: int
     interest_rate: float
-    monthly_emi: float
+    monthly_emi: Decimal
     risk_category: str
     reasons: list[str]
 
@@ -477,8 +478,8 @@ class GuardianPendingResponse(BaseModel):
 
 class AnnualLimitStatus(BaseModel):
     account_id: str
-    annual_received: float
-    annual_limit: float
+    annual_received: Decimal
+    annual_limit: Decimal
     fiscal_year: Optional[str] = None
     is_frozen: bool
-    remaining: float
+    remaining: Decimal

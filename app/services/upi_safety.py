@@ -63,6 +63,7 @@ async def check_annual_receiving_limit(
     the annual limit in the current fiscal year. If so, the account
     is frozen and no further credits are allowed.
     """
+    amount = float(amount)
     current_fy = _current_fy()
 
     # Auto-reset if FY has rolled over
@@ -82,7 +83,7 @@ async def check_annual_receiving_limit(
             ),
         }
 
-    projected = receiver_account.annual_received + amount
+    projected = float(receiver_account.annual_received) + amount
     if projected > settings.UPI_ANNUAL_RECEIVING_LIMIT:
         # Freeze the account
         receiver_account.is_frozen = True
@@ -195,8 +196,9 @@ async def update_annual_received(
     amount: float,
 ) -> None:
     """Increment the annual received tally after a successful transfer."""
+    amount = float(amount)
     current_fy = _current_fy()
     if receiver_account.annual_received_fy != current_fy:
         receiver_account.annual_received = 0.0
         receiver_account.annual_received_fy = current_fy
-    receiver_account.annual_received += amount
+    receiver_account.annual_received = float(receiver_account.annual_received) + amount

@@ -18,17 +18,54 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+
+def get_or_generate_rsa_keys():
+    keys_dir = "keys"
+    private_key_path = os.path.join(keys_dir, "jwt_private.pem")
+    public_key_path = os.path.join(keys_dir, "jwt_public.pem")
+    os.makedirs(keys_dir, exist_ok=True)
+
+    if not os.path.exists(private_key_path) or not os.path.exists(public_key_path):
+        private_key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048, backend=default_backend()
+        )
+        with open(private_key_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        with open(public_key_path, "wb") as f:
+            f.write(private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+
+    with open(private_key_path, "r") as f:
+        priv_key = f.read()
+    with open(public_key_path, "r") as f:
+        pub_key = f.read()
+    return priv_key, pub_key
+
+PRIVATE_KEY, PUBLIC_KEY = get_or_generate_rsa_keys()
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
+
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.models import User, Account, ApiKey, WebhookEndpoint
 from app.schemas import (
     TokenResponse, UserLogin, UserOut, UserRegister,
     ApiKeyResponse, WebhookCreate, WebhookOut
 )
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_current_user_read
 from app.services.rate_limit import login_limiter, register_limiter
 
 # Natively initialize Firebase Admin context.
@@ -63,8 +100,8 @@ def _create_token(user_id: int, role: str) -> str:
     expire = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     return jwt.encode(
         {"sub": str(user_id), "role": role, "exp": expire},
-        settings.JWT_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM,
+        PRIVATE_KEY,
+        algorithm="RS256",
     )
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -319,8 +356,8 @@ async def _resolve_trusted(user, db):
 
 @router.get("/profile", response_model=ProfileOut)
 async def get_profile(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_read),
+    db: AsyncSession = Depends(get_read_db),
 ):
     """Return the authenticated user's complete profile."""
     await db.refresh(user)

@@ -10,7 +10,7 @@ from typing import List
 import json
 from datetime import datetime, timezone
 
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.dependencies import get_current_user, require_admin
 from app.models import User, Loan, LoanRepayment, CreditProfile, Account
 from app.schemas import (

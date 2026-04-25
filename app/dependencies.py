@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import hashlib
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.models import User, ApiKey
 
 security = HTTPBearer(auto_error=False)
@@ -27,10 +27,13 @@ async def get_current_user(
         )
     token = credentials.credentials
     try:
+        import os
+        with open(os.path.join("keys", "jwt_public.pem"), "r") as f:
+            public_key = f.read()
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+            public_key,
+            algorithms=["RS256"],
         )
         user_id: int | None = payload.get("sub")
         if user_id is None:
@@ -54,6 +57,14 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_read(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_read_db),
+) -> User:
+    """Read-only version of get_current_user to offload primary DB."""
+    return await get_current_user(credentials=credentials, db=db)
+
+
 async def require_admin(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -68,10 +79,13 @@ async def require_admin(
         )
     token = credentials.credentials
     try:
+        import os
+        with open(os.path.join("keys", "jwt_public.pem"), "r") as f:
+            public_key = f.read()
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+            public_key,
+            algorithms=["RS256"],
         )
         role: str | None = payload.get("role")
         user_id: int | None = payload.get("sub")
@@ -152,4 +166,42 @@ async def get_user_or_api_key(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated. Provide Bearer token or X-API-Key header",
         )
+
+
+async def get_user_or_api_key_read(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_read_db)
+) -> User:
+    """Read-only version of get_user_or_api_key."""
+    return await get_user_or_api_key(credentials=credentials, x_api_key=x_api_key, db=db)
+
+def require_permission(resource: str, action: str):
+    """RBAC permission checker — lazy-imports models to avoid startup crash."""
+    async def permission_checker(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        if user.role == "ADMIN":
+            return user
+
+        # Lazy import: these models may not exist yet
+        try:
+            from app.models import Role, Permission, RolePermission, UserRole
+        except ImportError:
+            raise HTTPException(status_code=501, detail="RBAC not configured")
+
+        stmt = (
+            select(Permission)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .join(UserRole, UserRole.role_id == RolePermission.role_id)
+            .where(UserRole.user_id == user.id)
+            .where(Permission.resource == resource)
+            .where(Permission.action == action)
+        )
+        result = await db.execute(stmt)
+        if not result.scalars().first():
+            raise HTTPException(status_code=403, detail=f"Permission denied: {action} on {resource}")
+        return user
+    return permission_checker
 

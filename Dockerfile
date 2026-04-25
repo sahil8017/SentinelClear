@@ -1,19 +1,11 @@
-# Stage 1: Builder
-FROM python:3.12-slim AS builder
-
-WORKDIR /app
-COPY requirements.txt .
-# Install dependencies into a local directory
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
-
-# Stage 2: Final
 FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONPATH=/app
 
-# Copy only the installed packages from builder
-COPY --from=builder /install /usr/local
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ app/

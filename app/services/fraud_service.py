@@ -1,3 +1,4 @@
+from opentelemetry import trace
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TypedDict
@@ -8,8 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import FraudRuleConfig, Transfer, Beneficiary, User, Account
 from app.services.fraud import score_transaction  # Unified scoring engine
+from app.ml.feature_pipeline import extract_features_for_account
+from app.ml.drift_monitor import drift_detector
 
 logger = logging.getLogger("sentinelclear.fraud")
+tracer = trace.get_tracer(__name__)
 
 class RiskReport(TypedDict):
     is_blocked: bool
@@ -31,6 +35,8 @@ async def evaluate_transfer_risk(
     client_ip: str | None = None,
 ) -> RiskReport:
     """Multi-layered predictive risk engine and regulatory orchestrator."""
+    amount = float(amount)
+    sender_balance = float(sender_balance)
 
     rules_triggered = []
 
@@ -77,7 +83,7 @@ async def evaluate_transfer_risk(
     rolling_vel = 0
     if row:
         row_vol, row_vel = row
-        rolling_vol = row_vol or 0.0
+        rolling_vol = float(row_vol) if row_vol else 0.0
         rolling_vel = row_vel or 0
 
     # 3. UPI Daily Volume Limit (₹1,00,000)
@@ -153,6 +159,9 @@ async def evaluate_transfer_risk(
     # LAYER 2: UNIFIED PREDICTIVE RISK ENGINE
     # ══════════════════════════════════════════════════════════════
     
+    # Extract real features from transfer history
+    sender_features = await extract_features_for_account(db, sender_account_id)
+
     # Resolve IP to City for Geo-Velocity checks
     current_city = None
     if client_ip:
@@ -170,6 +179,12 @@ async def evaluate_transfer_risk(
     
     risk_score = engine_result["risk_score"]
     rules_triggered.extend(engine_result["rules_triggered"])
+
+    # Drift detection on extracted features
+    drift_result = drift_detector.check_drift(sender_features)
+    if drift_result["drifted"]:
+        logger.warning("DRIFT DETECTED for account %s: %s", sender_account_id, drift_result["alerts"])
+    drift_detector.record_score(risk_score)
 
     # ══════════════════════════════════════════════════════════════
     # LAYER 3: DOMAIN-SPECIFIC ANOMALIES

@@ -160,6 +160,7 @@ async def score_transaction(
         }
     """
     configs = await _load_rule_configs(db)
+    amount = float(amount)
 
     # If no configs loaded (fresh DB), use defaults
     if not configs:

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, Any
 
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.models import SystemConfig, User
 from app.dependencies import require_admin
 

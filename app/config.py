@@ -5,23 +5,24 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # ── Database ──
-    DATABASE_URL: str = "postgresql+asyncpg://sentinel:sentinel_secret_2024@postgres-db:5432/sentinelclear"
+    DATABASE_URL: str
+    DATABASE_READ_URL: str
 
     # ── RabbitMQ ──
-    RABBITMQ_URL: str = "amqp://sentinel:sentinel_rabbit_2024@rabbitmq:5672/"
+    RABBITMQ_URL: str
 
     # ── JWT ──
-    JWT_SECRET_KEY: str = "sc-jwt-super-secret-key-change-in-production-2024"
+    JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60
 
     # ── Redis ──
-    REDIS_URL: str = "redis://redis:6379/0"
+    REDIS_URL: str
 
     # ── Neo4j (Graph DB) ──
-    NEO4J_URI: str = "bolt://neo4j:7687"
+    NEO4J_URI: str
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASS: str = "sentinel_neo4j_2024"
+    NEO4J_PASS: str
 
     # ── Fraud Detection — Rule Engine Defaults ──
     FRAUD_AMOUNT_THRESHOLD: float = 50_000.0
@@ -52,13 +53,13 @@ class Settings(BaseSettings):
 
     # ── Runtime toggles & security ──
     ENABLE_CHAOS_ENDPOINTS: bool = False
-    ADMIN_SECRET_KEY: str = "change-me-in-production"
+    ADMIN_SECRET_KEY: str
 
     # ── Default Admin Account (seeded on first startup) ──
     ADMIN_USERNAME: str = "admin"
     ADMIN_EMAIL: str = "admin@sentinelclear.io"
-    ADMIN_PASSWORD: str = "Admin@1234"
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
+    ADMIN_PASSWORD: str
+    ALLOWED_ORIGINS: list[str] = ["http://localhost", "http://localhost:5173", "http://localhost:8000"]
     GRAFANA_URL: str = "http://grafana:3000/api/health"
     REQUIRE_GRAFANA_FOR_HEALTH: bool = False
 

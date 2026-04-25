@@ -23,102 +23,74 @@ logger = logging.getLogger("sentinelclear.reconciliation")
 
 
 async def run_reconciliation(db: AsyncSession) -> dict:
-    """Compare stored balances against ledger-computed balances for all accounts.
-
-    For each account:
-      computed_balance = initial_deposit_total + SUM(CREDIT) - SUM(DEBIT)
-
-    Since deposits don't create ledger entries (they modify balance directly),
-    we compute: expected = SUM(deposits) + SUM(credits) - SUM(debits)
-
-    Actually, the simplest correct approach: an account's balance should equal
-    its initial deposits + net ledger flow. But since deposits aren't in the
-    ledger, we check consistency differently:
-
-    For any account with ledger entries, the latest balance_after in the
-    ledger should match the account's current balance (accounting for any
-    subsequent deposits that occurred after the last transfer).
-
-    The pragmatic check: for each account, the closing balance from the
-    last ledger entry should be consistent with the account balance minus
-    any deposits made after that last entry.
-
-    Simplified approach: We compare account.balance with the balance computed
-    from the most recent ledger entry's balance_after. If the account has had
-    no transactions since its last ledger entry, they should match exactly.
-
-    Returns a dict suitable for storing in ReconciliationLog.
-    """
     start_time = time.time()
 
-    # Get all accounts
-    result = await db.execute(select(Account))
-    accounts = result.scalars().all()
-
-    total_accounts = len(accounts)
-    discrepancies = []
+    total_accounts = 0
     accounts_checked = 0
+    discrepancies = []
+    total_drift = 0.0
 
-    for account in accounts:
-        # Get the most recent ledger entry for this account
-        ledger_result = await db.execute(
-            select(LedgerEntry)
-            .where(LedgerEntry.account_id == account.id)
-            .order_by(LedgerEntry.created_at.desc())
-            .limit(1)
-        )
-        last_entry = ledger_result.scalar_one_or_none()
+    # Count total accounts first
+    count_result = await db.execute(select(func.count(Account.id)))
+    total_accounts = count_result.scalar() or 0
 
-        if last_entry is None:
-            # No ledger entries — nothing to reconcile
-            continue
+    batch_size = 1000
+    offset = 0
 
-        accounts_checked += 1
+    while True:
+        result = await db.execute(select(Account).order_by(Account.id).offset(offset).limit(batch_size))
+        accounts = result.scalars().all()
+        
+        if not accounts:
+            break
+            
+        for account in accounts:
+            ledger_result = await db.execute(
+                select(LedgerEntry)
+                .where(LedgerEntry.account_id == account.id)
+                .order_by(LedgerEntry.created_at.desc())
+                .limit(1)
+            )
+            last_entry = ledger_result.scalar_one_or_none()
 
-        # Get total deposits made after the last ledger entry
-        # (Deposits don't create ledger entries, so we need to account for them)
-        # Since we don't track individual deposits in a separate table,
-        # we do a cross-check: total credits - total debits should equal
-        # balance - initial_deposits
+            if last_entry is None:
+                continue
 
-        # Simpler check: compute balance entirely from ledger
-        credit_result = await db.execute(
-            select(func.coalesce(func.sum(LedgerEntry.amount), 0.0))
-            .where(LedgerEntry.account_id == account.id, LedgerEntry.entry_type == "CREDIT")
-        )
-        total_credits = float(credit_result.scalar())
+            accounts_checked += 1
 
-        debit_result = await db.execute(
-            select(func.coalesce(func.sum(LedgerEntry.amount), 0.0))
-            .where(LedgerEntry.account_id == account.id, LedgerEntry.entry_type == "DEBIT")
-        )
-        total_debits = float(debit_result.scalar())
+            credit_result = await db.execute(
+                select(func.coalesce(func.sum(LedgerEntry.amount), 0.0))
+                .where(LedgerEntry.account_id == account.id, LedgerEntry.entry_type == "CREDIT")
+            )
+            total_credits = float(credit_result.scalar())
 
-        # Net ledger flow
-        net_ledger = total_credits - total_debits
+            debit_result = await db.execute(
+                select(func.coalesce(func.sum(LedgerEntry.amount), 0.0))
+                .where(LedgerEntry.account_id == account.id, LedgerEntry.entry_type == "DEBIT")
+            )
+            total_debits = float(debit_result.scalar())
 
-        # The last ledger entry's balance_after should be consistent
-        # A discrepancy in the last balance_after vs computed balance
-        # indicates a mid-transaction inconsistency
-        expected_from_ledger = last_entry.balance_after
-        actual = account.balance
+            net_ledger = total_credits - total_debits
+            expected_from_ledger = last_entry.balance_after
+            actual = account.balance
 
-        # Allow for floating-point tolerance
-        diff = round(abs(actual - expected_from_ledger), 6)
-        if diff > 0.01:
-            discrepancies.append({
-                "account_id": account.id,
-                "stored_balance": actual,
-                "ledger_balance": expected_from_ledger,
-                "difference": diff,
-                "total_credits": total_credits,
-                "total_debits": total_debits,
-            })
+            diff = round(abs(actual - expected_from_ledger), 6)
+            if diff > 0.01:
+                total_drift += diff
+                discrepancies.append({
+                    "account_id": account.id,
+                    "stored_balance": actual,
+                    "ledger_balance": expected_from_ledger,
+                    "difference": diff,
+                    "total_credits": total_credits,
+                    "total_debits": total_debits,
+                })
+                
+        offset += batch_size
 
     duration_ms = int((time.time() - start_time) * 1000)
     status = "PASSED" if len(discrepancies) == 0 else "FAILED"
 
-    # Store the result
     log_entry = ReconciliationLog(
         run_at=datetime.now(timezone.utc).replace(tzinfo=None),
         total_accounts=total_accounts,
@@ -133,17 +105,12 @@ async def run_reconciliation(db: AsyncSession) -> dict:
 
     if discrepancies:
         logger.error(
-            "RECONCILIATION FAILED — %d discrepancies found in %d accounts",
-            len(discrepancies), accounts_checked,
+            "RECONCILIATION FAILED - %d discrepancies found in %d accounts. Total drift: %.2f",
+            len(discrepancies), accounts_checked, total_drift
         )
-        for d in discrepancies:
-            logger.error(
-                "  Account %s: stored=%.2f ledger=%.2f diff=%.6f",
-                d["account_id"], d["stored_balance"], d["ledger_balance"], d["difference"],
-            )
     else:
         logger.info(
-            "Reconciliation PASSED — %d accounts checked, 0 discrepancies (%dms)",
+            "Reconciliation PASSED - %d accounts checked, 0 discrepancies (%dms)",
             accounts_checked, duration_ms,
         )
 
@@ -151,7 +118,8 @@ async def run_reconciliation(db: AsyncSession) -> dict:
         "status": status,
         "total_accounts": total_accounts,
         "accounts_checked": accounts_checked,
-        "discrepancies_found": len(discrepancies),
+        "mismatches": len(discrepancies),
+        "total_drift": total_drift,
         "discrepancies": discrepancies,
         "duration_ms": duration_ms,
     }

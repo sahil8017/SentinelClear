@@ -2,7 +2,6 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 
-import docker
 import httpx
 import time
 import uuid
@@ -20,54 +19,52 @@ logger = logging.getLogger("chaos")
 
 router = APIRouter(tags=["Chaos"])
 
-try:
-    # Uses local docker socket mounted into the container at /var/run/docker.sock
-    docker_client = docker.from_env()
-except Exception as e:
-    logger.warning(f"Could not connect to Docker socket: {e}")
-    docker_client = None
 
+async def perform_container_action(name: str, action: str):
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.post(f"http://chaos-admin:8001/containers/{name}/{action}")
+            if res.status_code not in (204, 304, 200):
+                raise HTTPException(status_code=res.status_code, detail=res.text)
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"Chaos control unavailable: {e}")
 
-async def get_container(name: str):
-    if not docker_client:
-        raise HTTPException(status_code=503, detail="Chaos control unavailable: Docker socket not found in this environment.")
-    try:
-        return await asyncio.to_thread(docker_client.containers.get, name)
-    except docker.errors.NotFound:
-        raise HTTPException(status_code=404, detail=f"Container {name} not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_container_status(name: str) -> str:
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.get(f"http://chaos-admin:8001/containers/{name}/json")
+            if res.status_code == 200:
+                return res.json().get("State", {}).get("Status", "unknown")
+            return "unknown"
+        except Exception:
+            return "unknown"
 
 
 @router.post("/admin/chaos/kill-db", dependencies=[Depends(require_admin)])
 async def kill_db():
     """Pause postgres-db container to simulate DB crash mid-flight"""
-    container = await get_container("postgres-db")
-    await asyncio.to_thread(container.pause)
+    await perform_container_action("postgres-db", "pause")
     return {"status": "paused", "container": "postgres-db"}
 
 
 @router.post("/admin/chaos/restore-db", dependencies=[Depends(require_admin)])
 async def restore_db():
     """Unpause postgres-db container to recover"""
-    container = await get_container("postgres-db")
-    await asyncio.to_thread(container.unpause)
+    await perform_container_action("postgres-db", "unpause")
     return {"status": "running", "container": "postgres-db"}
 
 
 @router.post("/admin/chaos/kill-worker", dependencies=[Depends(require_admin)])
 async def kill_worker():
     """Pause async-worker container to simulate worker crash"""
-    container = await get_container("async-worker")
-    await asyncio.to_thread(container.pause)
+    await perform_container_action("async-worker", "pause")
     return {"status": "paused", "container": "async-worker"}
 
 
 @router.post("/admin/chaos/restore-worker", dependencies=[Depends(require_admin)])
 async def restore_worker():
     """Unpause async-worker container to resume message consumption"""
-    container = await get_container("async-worker")
-    await asyncio.to_thread(container.unpause)
+    await perform_container_action("async-worker", "unpause")
     return {"status": "running", "container": "async-worker"}
 
 
@@ -138,18 +135,8 @@ async def stress_test():
 @router.get("/admin/chaos/status")
 async def get_chaos_status():
     """Return the status of the DB, worker, and the raw DLQ message count from RabbitMQ."""
-    db_status = "unknown"
-    worker_status = "unknown"
-
-    if docker_client:
-        try:
-            db_status = await asyncio.to_thread(lambda: docker_client.containers.get("postgres-db").status)
-        except Exception:
-            pass
-        try:
-            worker_status = await asyncio.to_thread(lambda: docker_client.containers.get("async-worker").status)
-        except Exception:
-            pass
+    db_status = await get_container_status("postgres-db")
+    worker_status = await get_container_status("async-worker")
 
     # Extract RabbitMQ credentials to query management API
     parsed_url = urlparse(settings.RABBITMQ_URL)

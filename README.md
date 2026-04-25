@@ -174,6 +174,15 @@ graph TB
 
 ---
 
+## Recent Updates (Stabilization & Parity)
+
+- **Backend Ledger Persistence**: Resolved a cascade of `TypeError` exceptions inside the transfer risk evaluation engine caused by implicit mathematical operations mixing SQLAlchemy `Decimal` instances and raw `float` data types.
+- **Audit Ledger Schema Patch**: Hotfixed the `audit_logs` database table and SQLAlchemy ORM by adding the missing `sender_account_id` and `receiver_account_id` properties to support the new dual-entry partitioning strategy.
+- **Dashboard Stability**: Applied CSS structural constraints to ensure `Recharts` receives valid parent dimensions, eliminating frontend component crashes due to `width(-1)` evaluation.
+- **Exception Masking Fixed**: Corrected a shadowed local `logger` assignment that was swallowing critical transaction exceptions, ensuring accurate error reporting.
+
+---
+
 ## Quickstart
 
 ```bash

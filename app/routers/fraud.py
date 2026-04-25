@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.dependencies import require_admin
 from app.models import FraudRuleConfig, Transfer, User
 from app.services.str_generator import generate_fiu_str_pdf

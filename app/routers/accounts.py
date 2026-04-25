@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.dependencies import get_current_user
 from app.models import Account, BalanceSnapshot, User
 from app.schemas import AccountCreate, AccountOut, BalanceOut, DepositRequest, DirectoryOut

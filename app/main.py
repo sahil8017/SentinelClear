@@ -4,7 +4,9 @@ import logging
 import httpx
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, status
+from fastapi import FastAPI, Depends, status, APIRouter, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.middleware.sla import SLAMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -19,10 +21,17 @@ from app.services import cache as redis_cache
 from app.services.fraud import seed_rule_configs
 from app.services.reconciliation import run_reconciliation
 from app.services import neo4j_service
+from app.services import event_bus as kafka_bus
 from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement, websocket, chaos, loans, aml, whitelist, admin_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger("sentinelclear")
+
+from app.logging_config import PIIMaskingFilter
+logging.getLogger().addFilter(PIIMaskingFilter())
+for name in logging.root.manager.loggerDict:
+    logging.getLogger(name).addFilter(PIIMaskingFilter())
+
 
 # APScheduler for background reconciliation
 _scheduler = None
@@ -83,6 +92,13 @@ async def lifespan(app: FastAPI):
     await redis_cache.connect()
     logger.info("✅ Redis cache ready")
 
+    # Connect to Kafka
+    try:
+        await kafka_bus.connect_kafka()
+        logger.info("✅ Kafka event bus ready")
+    except Exception as exc:
+        logger.warning("⚠️  Kafka connection failed: %s — event streaming disabled", exc)
+
     # Connect to Neo4j
     try:
         await neo4j_service.connect()
@@ -125,6 +141,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if _scheduler:
         _scheduler.shutdown(wait=False)
+    await kafka_bus.disconnect_kafka()
     await neo4j_service.disconnect()
     await redis_cache.disconnect()
     await rmq.disconnect()
@@ -134,6 +151,11 @@ async def lifespan(app: FastAPI):
 
 # ────────────────────────────── App ──────────────────────────────
 
+try:
+    from app.telemetry import setup_telemetry
+except Exception as _telem_err:
+    logger.warning("⚠️  Telemetry unavailable: %s — tracing disabled", _telem_err)
+    def setup_telemetry(app): pass  # noqa: E731
 app = FastAPI(
     title="SentinelClear",
     description=(
@@ -145,13 +167,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+setup_telemetry(app)
+
 
 def _normalize_origins(origins):
     if isinstance(origins, str):
         return [origin.strip() for origin in origins.split(",") if origin.strip()]
     return origins
 
+# ── Security Headers Middleware ──
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
+
 # ── CORS ──
+
+class DeprecationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/v1"):
+            response.headers["Sunset"] = "2027-01-01"
+            response.headers["Deprecation"] = "true"
+        return response
+
+app.add_middleware(DeprecationMiddleware)
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SLAMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_normalize_origins(settings.ALLOWED_ORIGINS),
@@ -168,23 +216,27 @@ Instrumentator(
 ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=True)
 
 # ── Register routers ──
-app.include_router(auth.router)
-app.include_router(accounts.router)
-app.include_router(transfers.router)
-app.include_router(audit.router)
-app.include_router(ledger.router)
-app.include_router(fraud.router)
-app.include_router(notifications.router)
-app.include_router(analytics.router)
-app.include_router(statement.router)
-app.include_router(websocket.router)
-app.include_router(loans.router)
-app.include_router(aml.router)
-app.include_router(whitelist.router)
-app.include_router(admin_settings.router)
+v1_router = APIRouter(prefix="/api/v1")
 
+v1_router.include_router(auth.router)
+v1_router.include_router(accounts.router)
+v1_router.include_router(transfers.router)
+v1_router.include_router(audit.router)
+v1_router.include_router(ledger.router)
+v1_router.include_router(fraud.router)
+v1_router.include_router(notifications.router)
+v1_router.include_router(analytics.router)
+v1_router.include_router(statement.router)
+
+v1_router.include_router(loans.router)
+v1_router.include_router(aml.router)
+v1_router.include_router(whitelist.router)
+v1_router.include_router(admin_settings.router)
+
+app.include_router(v1_router)
+app.include_router(websocket.router)
 if settings.ENABLE_CHAOS_ENDPOINTS:
-    app.include_router(chaos.router)
+    v1_router.include_router(chaos.router)
 else:
     logger.info("Chaos endpoints disabled in this deployment")
 

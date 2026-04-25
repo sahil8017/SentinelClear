@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.dependencies import get_current_user
 from app.models import Account, AuditLog, LedgerEntry, User
 from app.services.pdf_statement import generate_statement_pdf

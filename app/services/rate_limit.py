@@ -30,9 +30,6 @@ class RateLimiter:
         self.key_func = key_func  # "ip" or "user"
 
     async def __call__(self, request: Request) -> None:
-        # ── BYPASS FOR PRODUCTION TEST VERIFICATION ──
-        return
-        
         if redis_cache._pool is None:
             return  # Redis unavailable → fail open
 
@@ -88,6 +85,6 @@ class RateLimiter:
 
 
 # Pre-configured limiters
-login_limiter = RateLimiter(max_requests=100, window_seconds=60, key_func="ip")
-register_limiter = RateLimiter(max_requests=100, window_seconds=60, key_func="ip")
-transfer_limiter = RateLimiter(max_requests=300, window_seconds=60, key_func="user")
+login_limiter = RateLimiter(max_requests=5, window_seconds=60, key_func="user")
+register_limiter = RateLimiter(max_requests=3, window_seconds=60, key_func="user")
+transfer_limiter = RateLimiter(max_requests=30, window_seconds=60, key_func="user")

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime, date
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     Float,
+    Numeric,
     ForeignKey,
     Index,
     Integer,
@@ -86,11 +88,11 @@ class Account(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     account_type = Column(String(20), default="savings")
-    balance = Column(Float, default=0.0, nullable=False)
+    balance = Column(Numeric(precision=18, scale=2), default=Decimal("0.00"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # ── UPI Safety: Annual Receiving Limit ──
-    annual_received = Column(Float, default=0.0, nullable=False)  # Running tally for current FY
+    annual_received = Column(Numeric(precision=18, scale=2), default=Decimal("0.00"), nullable=False)  # Running tally for current FY
     annual_received_fy = Column(String(7), nullable=True)         # e.g. "2025-26"
     is_frozen = Column(Boolean, default=False, nullable=False)    # Frozen when ₹25L limit breached
 
@@ -106,7 +108,7 @@ class Transfer(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     sender_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
     receiver_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
     status = Column(
         SAEnum("COMPLETED", "FLAGGED", "FAILED", "PENDING_AUTH", "PENDING_APPROVAL", "PAUSED", "PENDING_GUARDIAN", name="transfer_status"),
         default="COMPLETED",
@@ -149,6 +151,8 @@ class AuditLog(Base):
     previous_hash = Column(String(64), nullable=False)
     current_hash = Column(String(64), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    sender_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True, index=True)
+    receiver_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True, index=True)
 
 
 # ────────────────────────────── Ledger Entry ──────────────────────────────
@@ -164,8 +168,8 @@ class LedgerEntry(Base):
         SAEnum("DEBIT", "CREDIT", name="ledger_entry_type"),
         nullable=False,
     )
-    amount = Column(Float, nullable=False)
-    balance_after = Column(Float, nullable=False)
+    amount = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
+    balance_after = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     transfer = relationship("Transfer", foreign_keys=[transfer_id])
@@ -202,7 +206,7 @@ class BalanceSnapshot(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False, unique=True, index=True)
-    balance = Column(Float, nullable=False)
+    balance = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
     snapshot_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     account = relationship("Account", foreign_keys=[account_id])
@@ -240,8 +244,8 @@ class AccountDailyStat(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     account_id = Column(String(36), ForeignKey("accounts.id"), nullable=False)
     stat_date = Column(Date, nullable=False)
-    total_sent = Column(Float, default=0.0, nullable=False)
-    total_received = Column(Float, default=0.0, nullable=False)
+    total_sent = Column(Numeric(precision=18, scale=2), default=Decimal("0.00"), nullable=False)
+    total_received = Column(Numeric(precision=18, scale=2), default=Decimal("0.00"), nullable=False)
     transfer_count = Column(Integer, default=0, nullable=False)
     flagged_count = Column(Integer, default=0, nullable=False)
 
@@ -264,9 +268,9 @@ class FraudRuleConfig(Base):
     __tablename__ = "fraud_rule_configs"
 
     rule_name = Column(String(50), primary_key=True)
-    weight = Column(Float, nullable=False, default=1.0)
+    weight = Column(Numeric(precision=18, scale=2), nullable=False, default=1.0)
     enabled = Column(Boolean, default=True, nullable=False)
-    threshold_value = Column(Float, nullable=True)  # rule-specific threshold
+    threshold_value = Column(Numeric(precision=18, scale=2), nullable=True)  # rule-specific threshold
     description = Column(String(200), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -331,9 +335,9 @@ class Loan(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True, index=True)
-    principal_amount = Column(Float, nullable=False)
-    outstanding_balance = Column(Float, nullable=False)
-    interest_rate = Column(Float, nullable=False)
+    principal_amount = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
+    outstanding_balance = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
+    interest_rate = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
     duration_months = Column(Integer, nullable=False, default=12)
     status = Column(
         SAEnum("PENDING", "ACTIVE", "CLOSED", "REJECTED", name="loan_status"),
@@ -351,7 +355,7 @@ class LoanRepayment(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     loan_id = Column(String(36), ForeignKey("loans.id"), nullable=False, index=True)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     loan = relationship("Loan", foreign_keys=[loan_id])
@@ -373,30 +377,30 @@ class CreditProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
 
     # ── Financial Indicators ──
-    monthly_income = Column(Float, nullable=False, default=0.0)
-    existing_liabilities = Column(Float, nullable=False, default=0.0)      # Total existing EMI/debt per month
-    total_assets = Column(Float, nullable=False, default=0.0)               # Savings, investments, property value
+    monthly_income = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
+    existing_liabilities = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))      # Total existing EMI/debt per month
+    total_assets = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))               # Savings, investments, property value
     employment_type = Column(String(30), nullable=False, default="salaried") # salaried, self_employed, freelancer, unemployed
-    employment_years = Column(Float, nullable=False, default=0.0)           # Years of employment / business tenure
+    employment_years = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))           # Years of employment / business tenure
     age = Column(Integer, nullable=False, default=25)
     dependents = Column(Integer, nullable=False, default=0)
     residence_type = Column(String(20), nullable=False, default="rented")   # owned, rented, parental
 
     # ── Behavioural Scores (derived from transaction history) ──
-    repayment_history_score = Column(Float, nullable=False, default=0.5)   # 0.0 (worst) to 1.0 (perfect)
+    repayment_history_score = Column(Numeric(precision=18, scale=2), nullable=False, default=0.5)   # 0.0 (worst) to 1.0 (perfect)
     account_age_months = Column(Integer, nullable=False, default=0)         # Months since first account opening
-    avg_monthly_balance = Column(Float, nullable=False, default=0.0)        # Average balance over last 6 months
+    avg_monthly_balance = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))        # Average balance over last 6 months
     num_previous_loans = Column(Integer, nullable=False, default=0)
     num_defaults = Column(Integer, nullable=False, default=0)
-    transaction_regularity = Column(Float, nullable=False, default=0.5)    # 0.0 to 1.0
+    transaction_regularity = Column(Numeric(precision=18, scale=2), nullable=False, default=0.5)    # 0.0 to 1.0
 
     # ── Computed Scores ──
     credit_score = Column(Integer, nullable=False, default=650)            # CIBIL-like: 300–900
-    foir = Column(Float, nullable=False, default=0.0)                      # Fixed Obligation to Income Ratio
-    debt_to_income = Column(Float, nullable=False, default=0.0)            # Total debt / annual income
+    foir = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))                      # Fixed Obligation to Income Ratio
+    debt_to_income = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))            # Total debt / annual income
 
     # ── ML Prediction Results (cached from last assessment) ──
-    ml_eligibility_score = Column(Float, nullable=True)                    # P(eligible) from ML model
+    ml_eligibility_score = Column(Numeric(precision=18, scale=2), nullable=True)                    # P(eligible) from ML model
     ml_risk_category = Column(String(20), nullable=True)                   # LOW, MEDIUM, HIGH, VERY_HIGH
     ml_explanation = Column(Text, nullable=True)                           # JSON XAI output
     last_assessed_at = Column(DateTime, nullable=True)

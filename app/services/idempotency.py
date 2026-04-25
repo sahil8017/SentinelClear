@@ -1,71 +1,64 @@
-"""Idempotency key service — prevents duplicate transaction processing."""
+"""Idempotency key service - prevents duplicate transaction processing using Redis atomic SET NX EX."""
 
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.services import cache as redis_cache
 
-from app.models import IdempotencyKey
-
-IDEMPOTENCY_TTL_HOURS = 24
+IDEMPOTENCY_TTL_SECONDS = 86400
 
 
 async def check_or_create_key(
-    db: AsyncSession,
+    db, # keep signature for compatibility but ignore
     key: str,
     user_id: int,
 ) -> dict:
     """Check idempotency key state and return appropriate action.
-
+    
     Returns:
-        {"action": "new"} — key doesn't exist, created with PENDING status
-        {"action": "replay", "response_code": int, "response_body": str} — cached response
-        {"action": "conflict"} — key exists but still PENDING (concurrent request)
+        {"action": "new"} - key doesn't exist, created with PENDING status
+        {"action": "replay", "response_code": int, "response_body": str} - cached response
+        {"action": "conflict"} - key exists but still PENDING (concurrent request)
     """
-    result = await db.execute(
-        select(IdempotencyKey).where(IdempotencyKey.key == key)
-    )
-    existing = result.scalar_one_or_none()
-
-    if existing is None:
-        entry = IdempotencyKey(key=key, user_id=user_id, status="PENDING")
-        db.add(entry)
-        await db.flush()
+    if redis_cache._pool is None:
+        # fallback if redis is down
         return {"action": "new"}
 
-    # Check TTL — expired keys are treated as new
-    if existing.created_at < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=IDEMPOTENCY_TTL_HOURS):
-        await db.delete(existing)
-        await db.flush()
-        entry = IdempotencyKey(key=key, user_id=user_id, status="PENDING")
-        db.add(entry)
-        await db.flush()
+    redis_key = f"idem:{key}"
+    
+    is_new = await redis_cache._pool.set(redis_key, "processing", nx=True, ex=IDEMPOTENCY_TTL_SECONDS)
+    
+    if is_new:
         return {"action": "new"}
 
-    if existing.status == "DONE":
+    cached = await redis_cache._pool.get(redis_key)
+    if cached == "processing":
+        return {"action": "conflict"}
+        
+    try:
+        cached_data = json.loads(cached)
         return {
             "action": "replay",
-            "response_code": existing.response_code,
-            "response_body": existing.response_body,
+            "response_code": cached_data.get("status_code", 201),
+            "response_body": json.dumps(cached_data.get("body", {})),
         }
-
-    return {"action": "conflict"}
+    except Exception:
+        return {"action": "conflict"}
 
 
 async def mark_done(
-    db: AsyncSession,
+    db, # keep signature
     key: str,
     response_code: int,
     response_body: dict,
 ) -> None:
     """Mark an idempotency key as DONE and cache the response."""
-    result = await db.execute(
-        select(IdempotencyKey).where(IdempotencyKey.key == key)
-    )
-    entry = result.scalar_one_or_none()
-    if entry:
-        entry.status = "DONE"
-        entry.response_code = response_code
-        entry.response_body = json.dumps(response_body)
-        await db.flush()
+    if redis_cache._pool is None:
+        return
+        
+    redis_key = f"idem:{key}"
+    cached_data = {
+        "status_code": response_code,
+        "body": response_body
+    }
+    await redis_cache._pool.set(redis_key, json.dumps(cached_data), ex=IDEMPOTENCY_TTL_SECONDS)

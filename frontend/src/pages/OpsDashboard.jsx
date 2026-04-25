@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import apiClient from '../lib/axios';
 import { toast } from 'sonner';
 import { formatIST } from '../lib/format';
+import { getToken } from '../lib/auth';
 
 export function OpsDashboard() {
   const [rules, setRules] = useState([]);
@@ -67,7 +68,7 @@ export function OpsDashboard() {
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const host = window.location.hostname;
-      ws = new WebSocket(`${protocol}://${host}:8000/ws/fraud-alerts`);
+      ws = new WebSocket(`${protocol}://${host}/ws/fraud-alerts?token=${getToken()}`);
 
       ws.onopen = () => {
         setWsStatus('connected');

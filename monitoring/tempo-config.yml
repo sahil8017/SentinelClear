@@ -1,0 +1,24 @@
+server_names_hash_bucket_size: 3
+stream_backend: {}
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+  ring:
+    kvstore:
+      store: inmemory
+ingester:
+  trace_idle_period: 30s
+  max_block_bytes: 1_000_000
+compactor:
+  compaction:
+    block_retention: 48h
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal

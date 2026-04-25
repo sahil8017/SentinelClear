@@ -274,7 +274,7 @@ export function Dashboard() {
                 <p className="text-[13px] text-[#6B7C93] mt-1">Reconstructed from historical activities.</p>
               </div>
            </div>
-           <div className="w-full h-[320px] relative">
+           <div className="w-full h-[320px] min-h-[320px] relative">
               {!balanceTimeline.length && !loading ? (
                 <div className="h-full flex flex-col items-center justify-center border border-dashed border-[#e3e8ee] bg-[#f6f9fc] rounded">
                    <span className="material-symbols-outlined text-[24px] text-[#6B7C93] mb-2">blur_off</span>
@@ -311,7 +311,7 @@ export function Dashboard() {
                 <p className="text-[13px] text-[#6B7C93] mt-1">In vs Out breakdown</p>
               </div>
            </div>
-           <div className="w-full h-[320px] relative">
+           <div className="w-full h-[320px] min-h-[320px] relative">
               {!history.length && !loading ? (
                 <div className="h-full flex flex-col items-center justify-center border border-dashed border-[#e3e8ee] bg-[#f6f9fc] rounded">
                    <span className="material-symbols-outlined text-[24px] text-[#6B7C93] mb-2">bar_chart</span>

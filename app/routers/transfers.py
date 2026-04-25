@@ -3,16 +3,19 @@ idempotency, double-entry ledger, balance snapshots, rate limiting,
 and UPI safety rules (transaction pause, vulnerable group, kill switch, annual limit)."""
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+
+logger = logging.getLogger("sentinelclear.transfers")
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import get_db, get_read_db
 from app.dependencies import get_user_or_api_key
 from app.models import Account, BalanceSnapshot, Notification, Transfer, User, WhitelistedContact
 from app.schemas import TransferOut, TransferRequest, FraudBlockedResponse
@@ -32,6 +35,7 @@ from app.services.upi_safety import (
     update_annual_received,
 )
 from app.config import settings
+from app.services.event_bus import publish_event as kafka_publish
 
 router = APIRouter(prefix="/transfers", tags=["Transfers"])
 
@@ -206,8 +210,6 @@ async def create_transfer(
     is_whitelisted = wl_result.scalar_one_or_none() is not None
 
     if is_whitelisted and risk_score >= settings.FRAUD_REVIEW_THRESHOLD:
-        import logging
-        logger = logging.getLogger("transfers")
         logger.info(f"Predictive risk score {risk_score} overridden to 0.1 for whitelisted contact {body.receiver_account_id}")
         risk_score = 0.1
         ml_risk_score = 0.0
@@ -524,6 +526,19 @@ async def create_transfer(
         await dispatch_webhook(u_id, webhook_payload)
     except Exception:
         pass  # Webhook failure is non-critical
+
+    # Publish to Kafka event bus
+    try:
+        await kafka_publish("sentinelclear.transfers", {
+            "transfer_id": transfer_id,
+            "amount": body.amount,
+            "sender": body.sender_account_id,
+            "receiver": body.receiver_account_id,
+            "status": "COMPLETED",
+            "timestamp": transfer.created_at.isoformat() if transfer.created_at else datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass  # Kafka failure is non-critical
 
     if idempotency_key:
         try:
