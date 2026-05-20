@@ -66,9 +66,21 @@ export function OpsDashboard() {
     let reconnectTimeout;
 
     const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      ws = new WebSocket(`${protocol}//${host}/ws/fraud-alerts?token=${getToken()}`);
+      let wsHost = window.location.host;
+      let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+      const apiURL = import.meta.env.VITE_API_URL || '';
+      if (apiURL.startsWith('http://') || apiURL.startsWith('https://')) {
+        try {
+          const url = new URL(apiURL);
+          wsHost = url.host;
+          protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        } catch (e) {
+          console.error('Failed to parse VITE_API_URL for WebSocket', e);
+        }
+      }
+
+      ws = new WebSocket(`${protocol}//${wsHost}/ws/fraud-alerts?token=${getToken()}`);
 
       ws.onopen = () => {
         setWsStatus('connected');
