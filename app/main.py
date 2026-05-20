@@ -103,8 +103,12 @@ async def lifespan(app: FastAPI):
     try:
         await neo4j_service.connect()
         logger.info("✅ Neo4j graph database ready")
+        
+        # Sync Postgres to Neo4j on boot
+        async with AsyncSessionLocal() as db:
+            await neo4j_service.sync_postgres_to_neo4j(db)
     except Exception as exc:
-        logger.warning("⚠️  Neo4j connection failed: %s — AML graph features degraded", exc)
+        logger.warning("⚠️  Neo4j connection failed or sync failed: %s — AML graph features degraded", exc)
 
     # Start scheduled reconciliation
     global _scheduler

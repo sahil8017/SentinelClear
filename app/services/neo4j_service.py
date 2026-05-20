@@ -126,7 +126,7 @@ async def get_network_graph(hours: int = 168, min_transfers: int = 1) -> dict:
     """
     cypher = """
     MATCH (s:Account)-[t:TRANSFERRED]->(r:Account)
-    WHERE t.created_at >= toString(datetime() - duration({hours: $hours}))
+    WHERE t.created_at IS NOT NULL AND datetime(t.created_at) >= datetime() - duration({hours: $hours})
     WITH s, r, t
     ORDER BY t.created_at ASC
     WITH s, r,
@@ -305,7 +305,7 @@ async def detect_circular_trading(
     cypher = """
     MATCH path = (start:Account)-[:TRANSFERRED*%d..%d]->(start)
     WHERE ALL(r IN relationships(path)
-              WHERE r.created_at >= toString(datetime() - duration({hours: $hours})))
+              WHERE r.created_at IS NOT NULL AND datetime(r.created_at) >= datetime() - duration({hours: $hours}))
     WITH path,
          [n IN nodes(path) | n.account_id] AS account_ids,
          [n IN nodes(path) | n.label]       AS labels,
@@ -359,7 +359,7 @@ async def get_clusters(hours: int = 168) -> list[dict]:
     WHERE EXISTS {
       (a)-[:TRANSFERRED]->(:Account)
       WHERE ALL(r IN [(a)-[rel:TRANSFERRED]->() | rel]
-                WHERE r.created_at >= toString(datetime() - duration({hours: $hours})))
+                WHERE r.created_at IS NOT NULL AND datetime(r.created_at) >= datetime() - duration({hours: $hours}))
     } OR EXISTS {
       (:Account)-[:TRANSFERRED]->(a)
     }
@@ -400,7 +400,7 @@ async def get_clusters(hours: int = 168) -> list[dict]:
         logger.warning("Cluster detection via APOC failed (%s) — using simple pair query", exc)
         cypher_simple = """
         MATCH (s:Account)-[t:TRANSFERRED]->(r:Account)
-        WHERE t.created_at >= toString(datetime() - duration({hours: $hours}))
+        WHERE t.created_at IS NOT NULL AND datetime(t.created_at) >= datetime() - duration({hours: $hours})
         WITH s.account_id AS sid, r.account_id AS rid,
              max(t.risk_score) AS max_risk,
              sum(t.amount) AS volume
@@ -444,3 +444,51 @@ async def is_healthy() -> bool:
             return record is not None and record["ok"] == 1
     except Exception:
         return False
+
+
+# ── Sync Postgres database to Neo4j ───────────────────────────────
+
+async def sync_postgres_to_neo4j(db) -> None:
+    """Sync all transfers from PostgreSQL to Neo4j if they are not already ingested."""
+    from sqlalchemy import select
+    from app.models import Transfer
+    import json
+    
+    # 1. Fetch all transfers from SQL
+    result = await db.execute(select(Transfer))
+    transfers = result.scalars().all()
+    
+    logger.info("Syncing %d transfers from PostgreSQL to Neo4j...", len(transfers))
+    
+    # 2. Ingest each one
+    for tx in transfers:
+        # Parse fraud rules
+        rules = []
+        if tx.fraud_rules_triggered:
+            try:
+                rules = json.loads(tx.fraud_rules_triggered)
+                if not isinstance(rules, list):
+                    rules = [str(rules)]
+            except Exception:
+                rules = [tx.fraud_rules_triggered]
+                
+        # created_at formatting
+        created_at_str = None
+        if tx.created_at:
+            created_at_str = tx.created_at.isoformat() + "Z"
+            
+        try:
+            await ingest_transfer(
+                sender_account_id=tx.sender_account_id,
+                receiver_account_id=tx.receiver_account_id,
+                transfer_id=tx.id,
+                amount=float(tx.amount),
+                status=tx.status,
+                risk_score=tx.risk_score or 0.0,
+                rules_triggered=rules,
+                created_at=created_at_str,
+            )
+        except Exception as e:
+            logger.error("Failed to sync transfer %s to Neo4j: %s", tx.id, e)
+            
+    logger.info("Successfully synced database transfers to Neo4j.")
