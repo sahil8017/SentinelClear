@@ -6,6 +6,16 @@ let signInWithGoogle = async () => null;
 let firebaseEnabled = false;
 let _initPromise = null;
 
+// Default Firebase web config (public — security enforced by Firebase Security Rules)
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAwozXT7cQcpYTfVwvkBbtm-3Ge-qzsAeg',
+  authDomain: 'sentinelclear-76442.firebaseapp.com',
+  projectId: 'sentinelclear-76442',
+  storageBucket: 'sentinelclear-76442.firebasestorage.app',
+  messagingSenderId: '442684678543',
+  appId: '1:442684678543:web:b7bf39a7e3b156119f2bfa',
+};
+
 function configFromEnv() {
   const cfg = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -57,7 +67,7 @@ function enableFirebase(firebaseConfig) {
 export async function initFirebase() {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
-    const cfg = configFromEnv() || (await loadRuntimeConfig());
+    const cfg = configFromEnv() || (await loadRuntimeConfig()) || DEFAULT_FIREBASE_CONFIG;
     if (!cfg) {
       console.warn('Firebase web auth not configured — use email/password sign-in.');
       return;
