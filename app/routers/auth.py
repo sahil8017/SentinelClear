@@ -161,6 +161,61 @@ async def login(
     logger.info("Login successful for user_id=%s", user.id)
     return TokenResponse(access_token=_create_token(user.id, user.role))
 
+import time
+import httpx
+
+_google_certs_cache = {}
+_google_certs_expires_at = 0
+
+async def get_google_public_certs() -> dict:
+    global _google_certs_cache, _google_certs_expires_at
+    now = time.time()
+    if _google_certs_cache and now < _google_certs_expires_at:
+        return _google_certs_cache
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get("https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com")
+            if res.status_code == 200:
+                _google_certs_cache = res.json()
+                cache_control = res.headers.get("Cache-Control", "")
+                max_age = 3600
+                match = re.search(r"max-age=(\d+)", cache_control)
+                if match:
+                    max_age = int(match.group(1))
+                _google_certs_expires_at = now + max_age
+                return _google_certs_cache
+    except Exception as e:
+        logger.error("Failed to fetch Google public certificates: %s", e)
+        if _google_certs_cache:
+            return _google_certs_cache
+        raise e
+    return {}
+
+async def verify_firebase_token_manually(token: str) -> dict:
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise ValueError("Firebase ID token lacks key ID 'kid' in header.")
+        
+        certs = await get_google_public_certs()
+        cert_pem = certs.get(kid)
+        if not cert_pem:
+            raise ValueError("Firebase ID token signed by an unknown key.")
+        
+        project_id = "sentinelclear-76442"
+        decoded = jwt.decode(
+            token,
+            cert_pem,
+            audience=project_id,
+            issuer=f"https://securetoken.google.com/{project_id}",
+            algorithms=["RS256"]
+        )
+        return decoded
+    except Exception as e:
+        raise ValueError(f"Manual signature validation failed: {str(e)}")
+
 @router.post("/firebase-login", response_model=TokenResponse)
 async def firebase_login(
     body: FirebaseLoginRequest,
@@ -169,19 +224,24 @@ async def firebase_login(
     _rate: None = Depends(login_limiter),
 ):
     """Complete Zero-Trust Verification executing the raw Firebase ID natively."""
-    if not _firebase_available:
-        raise HTTPException(
-            status_code=503,
-            detail="Firebase SSO is not configured. Contact administrator.",
-        )
-    try:
-        # 1. Decode and verify signature asynchronously against Google's public instances
-        decoded_token = await asyncio.to_thread(firebase_auth.verify_id_token, body.token)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Firebase verification failure: {str(e)}")
+    decoded_token = None
+    if _firebase_available:
+        try:
+            # 1. Decode and verify signature asynchronously against Google's public instances
+            decoded_token = await asyncio.to_thread(firebase_auth.verify_id_token, body.token)
+        except Exception as e:
+            logger.warning("Firebase Admin SDK verification failed: %s. Falling back to manual verification.", e)
+
+    if not decoded_token:
+        try:
+            # Fallback to manual verification using public keys
+            decoded_token = await verify_firebase_token_manually(body.token)
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Firebase verification failure: {str(e)}")
 
     email = decoded_token.get("email")
-    uid = decoded_token.get("uid")
+    uid = decoded_token.get("uid") or decoded_token.get("sub")
+
 
     if not email or not uid:
         raise HTTPException(
