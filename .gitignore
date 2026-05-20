@@ -43,6 +43,18 @@ app/ml/data/
 # Sensitive files
 service-account.json
 *.json.key
+keys/
+.env.production
+
+# Vercel (removed — using Hugging Face Spaces)
+vercel.json
+
+# Root-level presentation artifacts
+generate-presentation.js
+presentation.pptx
+/package.json
+/package-lock.json
+/node_modules/
 
 # Test artifacts
 _test_*.py

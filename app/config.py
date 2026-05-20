@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_EMAIL: str = "admin@sentinelclear.io"
     ADMIN_PASSWORD: str
-    ALLOWED_ORIGINS: list[str] = ["http://localhost", "http://localhost:5173", "http://localhost:8000", "https://sahil8017-sentinelclear-api.hf.space", "https://sentinel-clear-sahil8017s-projects.vercel.app"]
+    ALLOWED_ORIGINS: list[str] = ["http://localhost", "http://localhost:5173", "http://localhost:8000", "https://sahil8017-sentinelclear-api.hf.space"]
     GRAFANA_URL: str = "http://grafana:3000/api/health"
     REQUIRE_GRAFANA_FOR_HEALTH: bool = False
 

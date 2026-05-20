@@ -178,14 +178,61 @@ graph TB
 | **Auth** | Firebase Auth SDK | Google/GitHub SSO popup flow |
 | **HTTP Client** | Axios | Interceptor-based JWT management |
 
-### Infrastructure
+### Infrastructure & Cloud Services
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
+| **Hosting & Deployment** | [Hugging Face Spaces](https://huggingface.co/spaces) | Docker-based cloud deployment (SDK: Docker, port 7860) |
+| **PostgreSQL (Cloud)** | [Neon](https://console.neon.tech/) | Serverless Postgres for production database |
+| **Redis (Cloud)** | [Upstash](https://console.upstash.com/) | Serverless Redis for cache & rate limiting |
+| **Neo4j (Cloud)** | [Neo4j Aura](https://console.neo4j.io/) | Managed graph database for AML topology |
+| **RabbitMQ (Cloud)** | [CloudAMQP](https://api.cloudamqp.com/) | Managed RabbitMQ message broker |
 | **Containerization** | Docker + Docker Compose | Full-stack orchestration (11 services) |
 | **Migrations** | Alembic | Schema version control |
 | **Scheduling** | APScheduler | Automated reconciliation jobs |
 | **Chaos Engineering** | Docker SDK | Controlled failure injection (kill-db, kill-worker) |
+| **CI/CD** | GitHub Actions | Automated linting, security scans, E2E testing, image publish |
+
+---
+
+## Cloud Services
+
+SentinelClear leverages managed cloud services for production deployment, eliminating the need to self-host stateful infrastructure:
+
+| Service | Provider | Console URL | Purpose |
+|---------|----------|-------------|---------|
+| **Application Hosting** | Hugging Face Spaces | [huggingface.co/spaces](https://huggingface.co/spaces) | Docker container hosting with GPU support, secrets management, and persistent storage |
+| **PostgreSQL** | Neon | [console.neon.tech](https://console.neon.tech/) | Serverless Postgres with branching, autoscaling, and connection pooling |
+| **Redis** | Upstash | [console.upstash.com](https://console.upstash.com/) | Serverless Redis with per-request pricing, TLS, and REST API |
+| **Neo4j** | Neo4j Aura | [console.neo4j.io](https://console.neo4j.io/) | Fully managed graph database with automatic backups and scaling |
+| **RabbitMQ** | CloudAMQP | [api.cloudamqp.com](https://api.cloudamqp.com/) | Managed RabbitMQ clusters with monitoring, DLQ, and automatic failover |
+
+### Environment Variables (Cloud)
+
+When deploying to Hugging Face Spaces, configure these as **Space Secrets**:
+
+```env
+# Neon PostgreSQL
+DATABASE_URL=postgresql+asyncpg://<user>:<pass>@<host>.neon.tech/<db>?sslmode=require
+
+# CloudAMQP RabbitMQ
+RABBITMQ_URL=amqps://<user>:<pass>@<host>.cloudamqp.com/<vhost>
+
+# Upstash Redis
+REDIS_URL=rediss://default:<pass>@<host>.upstash.io:6379
+
+# Neo4j Aura
+NEO4J_URI=neo4j+s://<id>.databases.neo4j.io
+NEO4J_USER=neo4j
+NEO4J_PASS=<password>
+
+# App Security
+JWT_SECRET_KEY=<secure-random-key>
+ADMIN_SECRET_KEY=<secure-random-admin-key>
+
+# Firebase (optional — for Google/GitHub SSO)
+FIREBASE_SERVICE_ACCOUNT_JSON=<json-string>
+```
 
 ---
 
@@ -203,6 +250,14 @@ graph TB
 ---
 
 ## Quickstart
+
+### Hugging Face Spaces (Production)
+
+The production instance is deployed on **Hugging Face Spaces** as a Docker container:
+
+1. Fork or duplicate the Space on [Hugging Face](https://huggingface.co/spaces).
+2. Configure the required **Space Secrets** (see [Cloud Services](#cloud-services) section above).
+3. The Space will automatically build the Docker image and start the application on port `7860`.
 
 ### Local Development Setup
 
@@ -277,19 +332,27 @@ The pipeline comprises four sequential stages:
 
 ## Production Deployment
 
-SentinelClear is optimized for production-grade high availability using docker-compose replica pools and TLS reverse proxies.
+SentinelClear is deployed on **Hugging Face Spaces** using the Docker SDK. The Space builds the multi-stage `Dockerfile`, bundles the React frontend and FastAPI backend into a single container, and exposes the application on port `7860`.
 
-### Production Blueprint Components
+### Hugging Face Space Configuration
+
+The `README.md` front-matter (YAML metadata at the top of this file) configures the Space:
+
+```yaml
+sdk: docker
+app_port: 7860
+```
+
+### Self-Hosted Production (Optional)
+
+For self-hosted deployments, SentinelClear includes a full production blueprint:
+
 - **API Load Balancer**: Nginx terminates SSL/TLS, serves compiled frontend assets, upgrades WebSocket connections, and load-balances traffic across API gateway replicas.
 - **Service Replication**:
   - `api-gateway`: Automatically scaled to **3 active replicas** utilizing uvicorn multi-workers.
   - `async-worker`: Scaled to **2 active replicas** to handle parallel RabbitMQ events.
 - **Telemetry Mesh**: Collects logs, traces, and metrics via OpenTelemetry collector, feeding them to Tempo and Prometheus respectively.
 - **Auto-Certificate Renewal**: Integrated `certbot` container polls and automatically renews Let's Encrypt certificates every 12 hours.
-
-### Automated Production Deployment
-
-Execute the automated script on your production Ubuntu instance:
 
 ```bash
 # 1. Clone repository
@@ -376,7 +439,8 @@ SentinelClear/
 │       └── train_loan_model.py    # Model training pipeline
 ├── docker-compose.yml             # Local developer compose setup
 ├── docker-compose.prod.yml        # Production high-availability blueprint
-├── Dockerfile                     # Multi-stage Python build
+├── Dockerfile                     # Multi-stage Docker build (HF Spaces)
+├── start.sh                       # Container entrypoint (migrations + worker + API)
 ├── docs/                          # Project design and technical docs
 ├── frontend/
 │   └── src/                       # React 18 SPA (Stripe design system)
