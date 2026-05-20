@@ -177,6 +177,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Allow Firebase signInWithPopup to communicate back to the opener
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
         return response
 
 # ── CORS ──
