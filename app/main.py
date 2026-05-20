@@ -313,6 +313,8 @@ async def health_check():
     status_code = status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=status_code, content=payload)
 
+v1_router.add_api_route("/health", health_check, methods=["GET"], tags=["Health"])
+
 
 # ────────────────────────────── Reconciliation (Manual Trigger) ──────────────────────────────
 

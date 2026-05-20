@@ -1,5 +1,4 @@
-"""Async SQLAlchemy engine & session factory."""
-
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from app.config import settings
 
@@ -37,7 +36,15 @@ read_engine = create_async_engine(
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 AsyncSessionLocalRead = async_sessionmaker(read_engine, class_=AsyncSession, expire_on_commit=False)
 
-async def check_db_chaos():
+async def check_db_chaos(request: Request = None):
+    if request is not None:
+        try:
+            path = request.url.path
+            if "/admin/chaos" in path or "/health" in path:
+                return
+        except Exception:
+            pass
+
     from app.services.cache import _pool
     if _pool is not None:
         try:
@@ -53,16 +60,16 @@ async def check_db_chaos():
         except Exception:
             pass
 
-async def get_db() -> AsyncSession:
-    await check_db_chaos()
+async def get_db(request: Request = None) -> AsyncSession:
+    await check_db_chaos(request)
     async with AsyncSessionLocal() as session:
         try:
             yield session
         finally:
             await session.close()
 
-async def get_read_db() -> AsyncSession:
-    await check_db_chaos()
+async def get_read_db(request: Request = None) -> AsyncSession:
+    await check_db_chaos(request)
     async with AsyncSessionLocalRead() as session:
         try:
             yield session
