@@ -16,6 +16,20 @@ const DEFAULT_FIREBASE_CONFIG = {
   appId: '1:442684678543:web:b7bf39a7e3b156119f2bfa',
 };
 
+function isValidConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return false;
+  const required = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+  for (const k of required) {
+    const val = cfg[k];
+    if (!val || typeof val !== 'string') return false;
+    const trimmed = val.trim();
+    if (trimmed === '' || trimmed === 'undefined' || trimmed === 'null' || trimmed.startsWith('VITE_')) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function configFromEnv() {
   const cfg = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -28,9 +42,7 @@ function configFromEnv() {
   if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID) {
     cfg.measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID;
   }
-  const required = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-  if (required.some((k) => !cfg[k])) return null;
-  return cfg;
+  return isValidConfig(cfg) ? cfg : null;
 }
 
 async function loadRuntimeConfig() {
@@ -38,9 +50,7 @@ async function loadRuntimeConfig() {
     const res = await fetch('/firebase-config.json', { cache: 'no-store' });
     if (!res.ok) return null;
     const cfg = await res.json();
-    const required = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-    if (required.some((k) => !cfg[k])) return null;
-    return cfg;
+    return isValidConfig(cfg) ? cfg : null;
   } catch {
     return null;
   }
@@ -67,12 +77,20 @@ function enableFirebase(firebaseConfig) {
 export async function initFirebase() {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
-    const cfg = configFromEnv() || (await loadRuntimeConfig()) || DEFAULT_FIREBASE_CONFIG;
-    if (!cfg) {
+    let cfg = configFromEnv() || (await loadRuntimeConfig());
+    if (!isValidConfig(cfg)) {
+      console.warn('Firebase environment/runtime config not found. Falling back to DEFAULT_FIREBASE_CONFIG.');
+      cfg = DEFAULT_FIREBASE_CONFIG;
+    }
+    if (!isValidConfig(cfg)) {
       console.warn('Firebase web auth not configured — use email/password sign-in.');
       return;
     }
-    enableFirebase(cfg);
+    try {
+      enableFirebase(cfg);
+    } catch (error) {
+      console.error('Failed to initialize Firebase SDK safely:', error);
+    }
   })();
   return _initPromise;
 }
