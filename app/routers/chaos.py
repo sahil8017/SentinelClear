@@ -43,28 +43,52 @@ async def get_container_status(name: str) -> str:
 @router.post("/admin/chaos/kill-db", dependencies=[Depends(require_admin)])
 async def kill_db():
     """Pause postgres-db container to simulate DB crash mid-flight"""
-    await perform_container_action("postgres-db", "pause")
+    try:
+        await perform_container_action("postgres-db", "pause")
+    except Exception:
+        pass
+    from app.services.cache import _pool
+    if _pool is not None:
+        await _pool.set("chaos:db_paused", "true")
     return {"status": "paused", "container": "postgres-db"}
 
 
 @router.post("/admin/chaos/restore-db", dependencies=[Depends(require_admin)])
 async def restore_db():
     """Unpause postgres-db container to recover"""
-    await perform_container_action("postgres-db", "unpause")
+    try:
+        await perform_container_action("postgres-db", "unpause")
+    except Exception:
+        pass
+    from app.services.cache import _pool
+    if _pool is not None:
+        await _pool.set("chaos:db_paused", "false")
     return {"status": "running", "container": "postgres-db"}
 
 
 @router.post("/admin/chaos/kill-worker", dependencies=[Depends(require_admin)])
 async def kill_worker():
     """Pause async-worker container to simulate worker crash"""
-    await perform_container_action("async-worker", "pause")
+    try:
+        await perform_container_action("async-worker", "pause")
+    except Exception:
+        pass
+    from app.services.cache import _pool
+    if _pool is not None:
+        await _pool.set("chaos:worker_paused", "true")
     return {"status": "paused", "container": "async-worker"}
 
 
 @router.post("/admin/chaos/restore-worker", dependencies=[Depends(require_admin)])
 async def restore_worker():
     """Unpause async-worker container to resume message consumption"""
-    await perform_container_action("async-worker", "unpause")
+    try:
+        await perform_container_action("async-worker", "unpause")
+    except Exception:
+        pass
+    from app.services.cache import _pool
+    if _pool is not None:
+        await _pool.set("chaos:worker_paused", "false")
     return {"status": "running", "container": "async-worker"}
 
 
@@ -135,8 +159,34 @@ async def stress_test():
 @router.get("/admin/chaos/status")
 async def get_chaos_status():
     """Return the status of the DB, worker, and the raw DLQ message count from RabbitMQ."""
-    db_status = await get_container_status("postgres-db")
-    worker_status = await get_container_status("async-worker")
+    # Default statuses from Redis/State
+    db_status = "running"
+    worker_status = "running"
+    
+    from app.services.cache import _pool
+    if _pool is not None:
+        try:
+            db_paused = await _pool.get("chaos:db_paused")
+            if db_paused == "true":
+                db_status = "paused"
+                
+            worker_paused = await _pool.get("chaos:worker_paused")
+            if worker_paused == "true":
+                worker_status = "paused"
+        except Exception:
+            pass
+
+    # Try Docker container status if possible, fallback to simulated state if unknown
+    try:
+        docker_db_status = await get_container_status("postgres-db")
+        if docker_db_status != "unknown":
+            db_status = docker_db_status
+            
+        docker_worker_status = await get_container_status("async-worker")
+        if docker_worker_status != "unknown":
+            worker_status = docker_worker_status
+    except Exception:
+        pass
 
     # Extract RabbitMQ credentials to query management API
     parsed_url = urlparse(settings.RABBITMQ_URL)

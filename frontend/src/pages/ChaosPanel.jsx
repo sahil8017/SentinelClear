@@ -24,9 +24,7 @@ export function ChaosPanel() {
   // Poll chaos status
   const pollStatus = useCallback(async () => {
     try {
-      const res = await apiClient.get('/admin/chaos/status', {
-        headers: { 'X-Admin-Token': 'change-me-in-production' }
-      });
+      const res = await apiClient.get('/admin/chaos/status');
       setChaosStatus(res.data);
       return res.data;
     } catch (err) {
@@ -40,9 +38,7 @@ export function ChaosPanel() {
     setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] WARN: Initiating Chaos Fault Injection...`]);
 
     try {
-      await apiClient.post('/admin/chaos/kill-db', null, {
-        headers: { 'X-Admin-Token': 'change-me-in-production' }
-      });
+      await apiClient.post('/admin/chaos/kill-db');
 
       setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] CRITICAL: PostgreSQL TCP connection SEVERED`]);
       setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] CRITICAL: All active queries will TIMEOUT`]);
@@ -66,9 +62,7 @@ export function ChaosPanel() {
         setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] WARN: Auto-recovery initiating...`]);
 
         try {
-          await apiClient.post('/admin/chaos/restore-db', null, {
-            headers: { 'X-Admin-Token': 'change-me-in-production' }
-          });
+          await apiClient.post('/admin/chaos/restore-db');
           setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] INFO: PostgreSQL container UNPAUSED`]);
           setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] INFO: Connection pool re-established`]);
           setLogs(prev => [...prev.slice(-14), `[${new Date().toISOString()}] INFO: Ledger integrity VERIFIED against hash-chain`]);

@@ -37,7 +37,24 @@ read_engine = create_async_engine(
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 AsyncSessionLocalRead = async_sessionmaker(read_engine, class_=AsyncSession, expire_on_commit=False)
 
+async def check_db_chaos():
+    from app.services.cache import _pool
+    if _pool is not None:
+        try:
+            val = await _pool.get("chaos:db_paused")
+            if val == "true":
+                import asyncio
+                from sqlalchemy.exc import OperationalError
+                # Sleep to simulate network timeout
+                await asyncio.sleep(5)
+                raise OperationalError("Connection timed out (simulated chaos)", params=None, orig=None)
+        except OperationalError:
+            raise
+        except Exception:
+            pass
+
 async def get_db() -> AsyncSession:
+    await check_db_chaos()
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -45,6 +62,7 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 async def get_read_db() -> AsyncSession:
+    await check_db_chaos()
     async with AsyncSessionLocalRead() as session:
         try:
             yield session

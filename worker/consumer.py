@@ -43,6 +43,7 @@ WorkerSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_c
 
 # Neo4j graph driver (initialised in main())
 _neo4j_driver = None
+_redis_client = None
 
 
 async def _ingest_neo4j(event: dict) -> None:
@@ -202,6 +203,17 @@ async def _update_daily_stats(db: AsyncSession, event: dict) -> None:
 
 async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None:
     """Process a single transfer event — create notifications + update analytics + ingest graph."""
+    if _redis_client:
+        try:
+            val = await _redis_client.get("chaos:worker_paused")
+            if val == "true":
+                # Worker is paused: requeue message and sleep briefly to avoid a tight requeue loop
+                await asyncio.sleep(2)
+                await message.nack(requeue=True)
+                return
+        except Exception as redis_err:
+            logger.warning("Failed to check worker chaos status: %s", redis_err)
+
     try:
         body = json.loads(message.body.decode())
         
@@ -294,6 +306,21 @@ async def main() -> None:
 
     logger.info("Connected to RabbitMQ")
 
+    # ── Redis connection ──
+    try:
+        import redis.asyncio as redis
+        global _redis_client
+        _redis_client = redis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_connect_timeout=5,
+        )
+        logger.info("✅ Redis connected in worker — chaos control active")
+    except Exception as redis_exc:
+        logger.warning("⚠️ Redis connection failed in worker: %s", redis_exc)
+        _redis_client = None
+
     # ── Neo4j connection ──
     try:
         from neo4j import AsyncGraphDatabase
@@ -339,6 +366,9 @@ async def main() -> None:
     finally:
         await connection.close()
         await http_client.aclose()
+        if _redis_client:
+            await _redis_client.close()
+            logger.info("Redis driver closed in worker")
         if _neo4j_driver:
             await _neo4j_driver.close()
             logger.info("Neo4j driver closed")

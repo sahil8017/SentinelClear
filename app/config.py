@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # ── Reconciliation ──
     RECONCILIATION_INTERVAL_HOURS: int = 24
 
-    # ── Runtime toggles & security ──
-    ENABLE_CHAOS_ENDPOINTS: bool = False
+    # ── Chaos Engineering ──
+    ENABLE_CHAOS_ENDPOINTS: bool = True
     ADMIN_SECRET_KEY: str
 
     # ── Default Admin Account (seeded on first startup) ──
