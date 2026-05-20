@@ -18,7 +18,7 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        await websocket.accept()
+        # websocket is already accepted by the endpoint before this is called
         self.active_connections.append(websocket)
         logger.info(f"Client connected. Active clients: {len(self.active_connections)}")
 
@@ -45,10 +45,13 @@ def _verify_ws_token(token: str) -> dict:
     Returns the decoded payload if valid, raises ValueError otherwise.
     """
     try:
+        import os
+        with open(os.path.join("keys", "jwt_public.pem"), "r") as f:
+            public_key = f.read()
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+            public_key,
+            algorithms=["RS256"],
         )
         user_id = payload.get("sub")
         if user_id is None:
@@ -60,32 +63,52 @@ def _verify_ws_token(token: str) -> dict:
 
 @router.websocket("/ws/fraud-alerts")
 async def websocket_fraud_alerts(websocket: WebSocket):
-    """Real-time fraud event stream (authenticated via query param token)."""
+    """Real-time fraud event stream (authenticated via query param token).
+
+    Accept is called first so the browser gets a proper WS close frame
+    instead of a raw TCP reset, which eliminates the 'failed' console error.
+    """
+    # Always accept first so we can send proper close codes
+    await websocket.accept()
+
     # ── Extract token from query string ──
-    query_params = parse_qs(websocket.scope.get("query_string", b"").decode())
-    token_list = query_params.get("token", [])
-
-    if not token_list:
-        await websocket.close(code=4401, reason="Authentication required — pass ?token=<JWT>")
-        return
-
     try:
-        payload = _verify_ws_token(token_list[0])
-        logger.info("WebSocket authenticated: user_id=%s role=%s", payload.get("sub"), payload.get("role"))
-    except ValueError as exc:
-        await websocket.close(code=4403, reason=str(exc))
+        query_params = parse_qs(websocket.scope.get("query_string", b"").decode())
+        token_list = query_params.get("token", [])
+
+        if not token_list:
+            logger.warning("WebSocket: no token provided, closing with 4401")
+            await websocket.close(code=4401, reason="Authentication required — pass ?token=<JWT>")
+            return
+
+        try:
+            payload = _verify_ws_token(token_list[0])
+            logger.info(
+                "WebSocket authenticated: user_id=%s role=%s",
+                payload.get("sub"),
+                payload.get("role"),
+            )
+        except ValueError as exc:
+            logger.warning("WebSocket: token verification failed: %s", exc)
+            await websocket.close(code=4403, reason=str(exc))
+            return
+
+    except Exception as exc:
+        logger.error("WebSocket: unexpected error during auth phase: %s", exc)
+        await websocket.close(code=4500, reason="Internal server error during authentication")
         return
 
+    # ── Auth passed — register and run the connection loop ──
     await manager.connect(websocket)
     try:
         while True:
-            # Keep connection open and wait for incoming messages if any
-            # In our case, backend just pushes, so we can wait on receive
+            # Keep connection alive; backend pushes events via manager.broadcast()
             _ = await websocket.receive_text()
     except WebSocketDisconnect:
+        logger.info("WebSocket: client disconnected cleanly")
         manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+    except Exception as exc:
+        logger.error("WebSocket: runtime error: %s", exc)
         manager.disconnect(websocket)
 
 

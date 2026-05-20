@@ -15,8 +15,37 @@ export function AMLGraph() {
   const [minRisk, setMinRisk] = useState(0);
   const [stats, setStats] = useState(null);
   const graphRef = useRef();
+  const isMountedRef = useRef(true);
+  const containerRef = useRef();
+  const [dimensions, setDimensions] = useState({ width: 800, height: 650 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setDimensions({
+          width: entry.contentRect.width || 800,
+          height: entry.contentRect.height || 650
+        });
+      }
+    });
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (graphRef.current && graphData.nodes.length > 0) {
+      const timer = setTimeout(() => {
+        if (graphRef.current) {
+          graphRef.current.zoomToFit(400, 50);
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [graphData]);
 
   const fetchGraph = useCallback(async () => {
+    if (!isMountedRef.current) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -45,7 +74,7 @@ export function AMLGraph() {
               is_flagged: node.data?.is_flagged || false,
               flagged: node.data?.flagged || 0,
               // Size proportional to volume (scale logarithmically to avoid giant nodes)
-              val: Math.max(1, Math.log10((node.data?.total_in || 0) + (node.data?.total_out || 0) + 10))
+              val: Math.max(6, Math.log10((node.data?.total_in || 0) + (node.data?.total_out || 0) + 1) * 3)
             });
           }
         });
@@ -71,20 +100,25 @@ export function AMLGraph() {
       processEdges(netData.edges);
       processEdges(circData.edges);
 
-      setGraphData({
-        nodes: Array.from(nodeMap.values()),
-        links: Array.from(linkMap.values())
-      });
-      
-      setStats(netData.stats || null);
-      setClusters(circData.clusters || netData.clusters || []);
+      if (isMountedRef.current) {
+        setGraphData({
+          nodes: Array.from(nodeMap.values()),
+          links: Array.from(linkMap.values())
+        });
+        setStats(netData.stats || null);
+        setClusters(circData.clusters || netData.clusters || []);
+      }
 
     } catch (err) {
       console.error(err);
-      setError('Failed to aggregate AML data from Neo4j.');
-      toast.error('Failed to load AML intelligence network.');
+      if (isMountedRef.current) {
+        setError('Failed to aggregate AML data from Neo4j.');
+        toast.error('Failed to load AML intelligence network.');
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [hours]);
 
@@ -92,7 +126,20 @@ export function AMLGraph() {
     fetchGraph(); 
   }, [fetchGraph]);
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Null out the ForceGraph ref to stop canvas animation callbacks
+      // from firing postMessage to a closed port after unmount
+      if (graphRef.current) {
+        graphRef.current = null;
+      }
+    };
+  }, []);
+
   const handleNodeClick = useCallback((node) => {
+    if (!isMountedRef.current) return;
     setSelectedNode(node);
     // Center the camera on the clicked node
     if (graphRef.current) {
@@ -109,7 +156,11 @@ export function AMLGraph() {
   };
 
   const filteredGraphData = React.useMemo(() => {
-    const nodes = graphData.nodes.filter(n => n.risk_score >= minRisk || n.id.toLowerCase().includes(searchQuery.toLowerCase()));
+    const nodes = graphData.nodes.filter(n => {
+      const matchesRisk = n.risk_score >= minRisk;
+      const matchesSearch = !searchQuery || n.id.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesRisk && matchesSearch;
+    });
     const nodeIds = new Set(nodes.map(n => n.id));
     const links = graphData.links.filter(l => {
         const src = typeof l.source === 'object' ? l.source.id : l.source;
@@ -168,14 +219,8 @@ export function AMLGraph() {
       ctx.stroke();
     }
 
-    if (isHighlight && globalScale > 1.2 && !isActiveScope) {
-      const fontSize = 11 / globalScale;
-      ctx.font = `${fontSize}px Inter, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#0A2540';
-      ctx.fillText(node.label, node.x, node.y + node.val + fontSize + 2);
-    } else if (isHighlight && isActiveScope) {
-      const fontSize = Math.max(10 / globalScale, 2);
+    if (isHighlight && (globalScale > 0.8 || isActiveScope)) {
+      const fontSize = Math.max(10 / globalScale, 4);
       ctx.font = `${fontSize}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#0A2540';
@@ -282,7 +327,7 @@ export function AMLGraph() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* ── Force-Directed Graph ── */}
-        <div className="lg:col-span-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded shadow-[inset_0_2px_10px_rgba(0,0,0,0.01)] overflow-hidden relative" style={{ height: '650px' }}>
+        <div ref={containerRef} className="lg:col-span-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded shadow-[inset_0_2px_10px_rgba(0,0,0,0.01)] overflow-hidden relative" style={{ height: '650px' }}>
           {isLoading ? (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4">
@@ -305,6 +350,8 @@ export function AMLGraph() {
           ) : (
             <ForceGraph2D
               ref={graphRef}
+              width={dimensions.width}
+              height={dimensions.height}
               graphData={filteredGraphData}
               nodeVal="val"
               nodeLabel="id"

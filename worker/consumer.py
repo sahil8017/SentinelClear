@@ -74,7 +74,7 @@ async def _ingest_neo4j(event: dict) -> None:
             sender_id=event.get("sender_account_id", ""),
             receiver_id=event.get("receiver_account_id", ""),
             transfer_id=event.get("transfer_id", ""),
-            amount=event.get("amount", 0),
+            amount=float(event.get("amount", 0)),
             status=event.get("status", "UNKNOWN"),
             risk_score=event.get("risk_score", 0.0) or 0.0,
             rules=event.get("rules_triggered", []) or [],
@@ -212,14 +212,22 @@ async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None
     try:
         body = json.loads(message.body.decode())
         
+        # Cast amount to Decimal since JSON loads it as float
+        from decimal import Decimal
+        if "amount" in body:
+            body["amount"] = Decimal(str(body["amount"]))
+            
         # Broadcast fraud alert over websocket
         if body.get("status") == "FLAGGED":
             try:
                 # We use httpx inside the worker to hit the main API gateway
+                # Since body contains Decimal now, we need to convert it back for json payload
+                broadcast_body = body.copy()
+                broadcast_body["amount"] = float(broadcast_body["amount"])
                 await http_client.post(
                     "http://api-gateway:8000/internal/broadcast-fraud",
                     headers={"X-Admin-Token": settings.ADMIN_SECRET_KEY},
-                    json=body,
+                    json=broadcast_body,
                 )
             except Exception as broad_exc:
                 logger.error(f"Failed to broadcast fraud alert: {broad_exc}")
@@ -227,7 +235,7 @@ async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None
         logger.info(
             "Processing event: id=%s amount=%.2f status=%s",
             body.get("transfer_id"),
-            body.get("amount", 0),
+            float(body.get("amount", 0)),
             body.get("status"),
         )
 

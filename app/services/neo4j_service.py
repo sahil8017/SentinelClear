@@ -257,10 +257,30 @@ async def get_network_graph(hours: int = 168, min_transfers: int = 1) -> dict:
     total_volume = sum(n["total_out"] for n in nodes_map.values())
     high_risk_nodes = sum(1 for n in nodes_map.values() if n["max_risk"] >= 0.7)
 
+    raw_clusters = await get_clusters(hours)
+    
+    enriched_clusters = []
+    for c in raw_clusters:
+        c_nodes = c["accounts"]
+        max_risk = 0.0
+        total_vol = 0.0
+        for acct_id in c_nodes:
+            if acct_id in nodes_map:
+                max_risk = max(max_risk, nodes_map[acct_id]["max_risk"])
+                total_vol += nodes_map[acct_id]["total_out"]
+        c["max_risk"] = round(max_risk, 4)
+        c["total_volume"] = round(total_vol, 2)
+        c["threat_level"] = "CRITICAL" if max_risk >= 0.7 else (
+            "ELEVATED" if max_risk >= 0.4 else "NORMAL"
+        )
+        enriched_clusters.append(c)
+        
+    enriched_clusters.sort(key=lambda x: x["max_risk"], reverse=True)
+
     return {
         "nodes": nodes,
         "edges": edges,
-        "clusters": await get_clusters(hours),
+        "clusters": enriched_clusters,
         "stats": {
             "total_accounts": len(nodes),
             "total_flows": len(edges),
@@ -367,11 +387,11 @@ async def get_clusters(hours: int = 168) -> list[dict]:
             records = await result.data()
 
         for rec in records:
-            accounts = rec["accounts"]
+            accounts = sorted(list(set(rec["accounts"])))
             clusters.append({
                 "accounts": accounts,
-                "size": rec["cluster_size"],
-                "max_risk": 0.0,  # Enriched below
+                "size": len(accounts),
+                "max_risk": 0.0,  # Enriched above in get_network_graph
                 "total_volume": 0.0,
                 "threat_level": "NORMAL",
             })

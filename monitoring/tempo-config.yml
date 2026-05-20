@@ -1,5 +1,3 @@
-server_names_hash_bucket_size: 3
-stream_backend: {}
 distributor:
   receivers:
     otlp:

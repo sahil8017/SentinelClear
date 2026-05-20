@@ -21,7 +21,6 @@ from app.services import cache as redis_cache
 from app.services.fraud import seed_rule_configs
 from app.services.reconciliation import run_reconciliation
 from app.services import neo4j_service
-from app.services import event_bus as kafka_bus
 from app.routers import auth, accounts, transfers, audit, ledger, fraud, notifications, analytics, statement, websocket, chaos, loans, aml, whitelist, admin_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -92,13 +91,6 @@ async def lifespan(app: FastAPI):
     await redis_cache.connect()
     logger.info("✅ Redis cache ready")
 
-    # Connect to Kafka
-    try:
-        await kafka_bus.connect_kafka()
-        logger.info("✅ Kafka event bus ready")
-    except Exception as exc:
-        logger.warning("⚠️  Kafka connection failed: %s — event streaming disabled", exc)
-
     # Connect to Neo4j
     try:
         await neo4j_service.connect()
@@ -141,7 +133,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if _scheduler:
         _scheduler.shutdown(wait=False)
-    await kafka_bus.disconnect_kafka()
     await neo4j_service.disconnect()
     await redis_cache.disconnect()
     await rmq.disconnect()
@@ -233,12 +224,13 @@ v1_router.include_router(aml.router)
 v1_router.include_router(whitelist.router)
 v1_router.include_router(admin_settings.router)
 
-app.include_router(v1_router)
-app.include_router(websocket.router)
 if settings.ENABLE_CHAOS_ENDPOINTS:
     v1_router.include_router(chaos.router)
 else:
     logger.info("Chaos endpoints disabled in this deployment")
+
+app.include_router(v1_router)
+app.include_router(websocket.router)
 
 
 # ────────────────────────────── Health ──────────────────────────────

@@ -66,9 +66,9 @@ export function OpsDashboard() {
     let reconnectTimeout;
 
     const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const host = window.location.hostname;
-      ws = new WebSocket(`${protocol}://${host}/ws/fraud-alerts?token=${getToken()}`);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      ws = new WebSocket(`${protocol}//${host}/ws/fraud-alerts?token=${getToken()}`);
 
       ws.onopen = () => {
         setWsStatus('connected');

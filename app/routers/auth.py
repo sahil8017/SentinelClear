@@ -1,6 +1,7 @@
 """Auth router — register, login, and robust Firebase integrations."""
 
 import logging
+from decimal import Decimal
 logger = logging.getLogger("auth")
 
 import asyncio
@@ -128,7 +129,7 @@ async def register(
     await db.refresh(user)
 
     # ── Auto-provision primary account ──
-    account = Account(owner_id=user.id, account_type="savings", balance=0.0)
+    account = Account(owner_id=user.id, account_type="savings", balance=Decimal("0.00"))
     db.add(account)
     await db.commit()
 
@@ -214,7 +215,7 @@ async def firebase_login(
         await db.refresh(user)
 
         # ── Auto-provision primary account ──
-        account = Account(owner_id=user.id, account_type="savings", balance=0.0)
+        account = Account(owner_id=user.id, account_type="savings", balance=Decimal("0.00"))
         db.add(account)
         await db.commit()
 

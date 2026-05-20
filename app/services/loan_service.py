@@ -7,6 +7,7 @@ Enforces:
 """
 
 import uuid
+from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +30,7 @@ async def _ensure_treasury(db: AsyncSession) -> Account:
             id=TREASURY_ACCOUNT_ID,
             owner_id=TREASURY_OWNER_ID,
             account_type="treasury",
-            balance=1_000_000_000.0,
+            balance=Decimal("1000000000.00"),
         )
         db.add(treasury)
         await db.flush()

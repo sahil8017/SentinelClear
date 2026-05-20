@@ -75,9 +75,15 @@ async def publish_transfer_event(event: dict) -> None:
         return
 
     try:
+        from decimal import Decimal
+        def default_encoder(obj):
+            if isinstance(obj, Decimal):
+                return float(obj)
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
         exchange = await _channel.get_exchange(EXCHANGE_NAME)
         message = aio_pika.Message(
-            body=json.dumps(event).encode(),
+            body=json.dumps(event, default=default_encoder).encode(),
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
         )
         await exchange.publish(message, routing_key="")

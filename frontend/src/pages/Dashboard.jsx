@@ -281,7 +281,7 @@ export function Dashboard() {
                    <p className="text-[12px] font-medium text-[#6B7C93]">No transactions recorded yet.</p>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={320} minWidth={0} minHeight={0}>
                   <AreaChart data={balanceTimeline} margin={{ top: 10, right: 0, left: 10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
@@ -318,7 +318,7 @@ export function Dashboard() {
                    <p className="text-[12px] font-medium text-[#6B7C93]">Not enough data</p>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={320} minWidth={0} minHeight={0}>
                   <BarChart data={incomeExpenseData} barGap={4} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e3e8ee" />
                     <XAxis dataKey="day" stroke="#6B7C93" fontSize={12} tickLine={false} axisLine={false} dy={10} />

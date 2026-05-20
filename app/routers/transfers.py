@@ -378,7 +378,7 @@ async def create_transfer(
                     "id": transfer.id,  # Compatibility with test script
                     "status": "PENDING_APPROVAL",
                     "transfer_id": transfer.id,
-                    "amount": transfer.amount,
+                    "amount": float(transfer.amount),
                     "detail": "High-value transfer requires administrative approval (Maker-Checker).",
                 },
             )
@@ -546,7 +546,7 @@ async def create_transfer(
                 "id": transfer.id,
                 "sender_account_id": transfer.sender_account_id,
                 "receiver_account_id": transfer.receiver_account_id,
-                "amount": transfer.amount,
+                "amount": float(transfer.amount),
                 "status": transfer.status,
                 "risk_score": transfer.risk_score,
                 "fraud_rules_triggered": transfer.fraud_rules_triggered,

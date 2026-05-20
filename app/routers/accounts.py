@@ -1,5 +1,6 @@
 """Account router — create, deposit, balance (with Redis cache + snapshot fallback)."""
 
+from decimal import Decimal
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -39,7 +40,7 @@ async def resolve_account(account_id: str, user: User, db: AsyncSession) -> Acco
         )
         account = result.scalars().first()
         if not account:
-            account = Account(owner_id=user.id, account_type="savings", balance=0.0)
+            account = Account(owner_id=user.id, account_type="savings", balance=Decimal("0.00"))
             db.add(account)
             await db.commit()
             await db.refresh(account)
@@ -174,7 +175,7 @@ async def deposit(
             id=TREASURY_ACCOUNT_ID,
             owner_id=system_user.id,
             account_type="treasury",
-            balance=0.0
+            balance=Decimal("0.00")
         )
         db.add(treasury)
         await db.flush()

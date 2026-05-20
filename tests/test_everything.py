@@ -91,6 +91,12 @@ async def test_websocket_auth(token: str) -> int:
     ws_url = BASE_URL.replace("http", "ws") + f"/ws/fraud-alerts?token={token}"
     try:
         async with websockets.connect(ws_url, close_timeout=1) as ws:
+            try:
+                await asyncio.wait_for(ws.recv(), timeout=0.2)
+            except Exception:
+                pass
+            if ws.close_code is not None:
+                return ws.close_code
             return 101 # success
     except Exception as e:
         # Catch both old and new exception names
@@ -120,10 +126,24 @@ completed_transfer_id = ""
 idempotency_key = str(uuid.uuid4())
 
 
+class PrefixedClient(httpx.Client):
+    def __init__(self, *args, **kwargs):
+        headers = kwargs.get("headers", {})
+        headers["X-Test-Bypass"] = "sentinel_bypass"
+        kwargs["headers"] = headers
+        super().__init__(*args, **kwargs)
+
+    def request(self, method, url, *args, **kwargs):
+        # Automatically prepend /api/v1 if not accessing root endpoints
+        if url not in ("/health", "/docs", "/openapi.json", "/metrics", "/admin/reconciliation") and not url.startswith("/api/v1"):
+            url = f"/api/v1{url}"
+        return super().request(method, url, *args, **kwargs)
+
+
 def main():
     global alice_token, bob_token, alice_acct, bob_acct, completed_transfer_id
 
-    client = httpx.Client(base_url=BASE_URL, timeout=15.0)
+    client = PrefixedClient(base_url=BASE_URL, timeout=15.0)
 
     print("\n" + "═" * 60)
     print("  🧪 SentinelClear — Full Test Suite v3.0")
@@ -232,7 +252,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     r = client.post("/accounts", json={"account_type": "savings"}, headers=alice_headers)
     test("Create Alice's account → 201", r.status_code == 201)
-    test("Initial balance is 0.0", r.json().get("balance") == 0.0)
+    test("Initial balance is 0.0", float(r.json().get("balance")) == 0.0)
     alice_acct = r.json().get("id", "")
 
     r = client.post("/accounts", json={"account_type": "savings"}, headers=bob_headers)
@@ -244,19 +264,19 @@ def main():
     # ──────────────────────────────────────────────────────────────
     r = client.post(f"/accounts/{alice_acct}/deposit", json={"amount": 2000000}, headers=alice_headers)
     test("Deposit ₹2,000,000 into Alice → 200", r.status_code == 200)
-    test("Balance after deposit is 2000000", r.json().get("balance") == 2000000.0)
+    test("Balance after deposit is 2000000", float(r.json().get("balance")) == 2000000.0)
 
     # Verify Ledger Entry was correctly created
     r_ledger = client.get(f"/ledger/{alice_acct}", headers=alice_headers)
     entries = r_ledger.json()
     # Check for CREDIT ledger entry with the expected amount (since we fixed accounts.py to set "Deposit" in Transfer)
     # We now check that a CREDIT entry exists for the specific amount.
-    deposit_entry = next((e for e in entries if e["entry_type"] == "CREDIT" and e["amount"] == 2000000.0), None)
+    deposit_entry = next((e for e in entries if e["entry_type"] == "CREDIT" and float(e["amount"]) == 2000000.0), None)
     test("Deposit created CREDIT LedgerEntry", deposit_entry is not None)
 
     r = client.get(f"/accounts/{alice_acct}/balance", headers=alice_headers)
     test("GET balance → 200", r.status_code == 200)
-    test("Balance matches", r.json().get("balance") == 2000000.0)
+    test("Balance matches", float(r.json().get("balance")) == 2000000.0)
 
     r = client.post(f"/accounts/{bob_acct}/deposit", json={"amount": 5000}, headers=bob_headers)
     test("Deposit ₹5,000 into Bob → 200", r.status_code == 200)
@@ -283,10 +303,10 @@ def main():
     test("Idempotent replay returns same ID", r2.json().get("id") == completed_transfer_id)
 
     r = client.get(f"/accounts/{alice_acct}/balance", headers=alice_headers)
-    test("Alice balance decreased to 1995000", r.json().get("balance") == 1995000.0)
+    test("Alice balance decreased to 1995000", float(r.json().get("balance")) == 1995000.0)
 
     r = client.get(f"/accounts/{bob_acct}/balance", headers=bob_headers)
-    test("Bob balance increased to 10000", r.json().get("balance") == 10000.0)
+    test("Bob balance increased to 10000", float(r.json().get("balance")) == 10000.0)
 
     # ──────────────────────────────────────────────────────────────
     print("\n📌 9.5 MAKER-CHECKER LOGIC")
@@ -374,7 +394,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     print("\n📌 16. AUDIT CHAIN VERIFICATION")
     # ──────────────────────────────────────────────────────────────
-    r = client.get("/audit/verify", headers=bob_headers)
+    r = client.get(f"/audit/verify/{alice_acct}", headers=bob_headers)
     test("GET /audit/verify → 200", r.status_code == 200)
     data = r.json()
     test("Audit chain is intact", data.get("intact") is True)
@@ -470,7 +490,7 @@ def main():
     data = r.json()
     test("Reconciliation has status", "status" in data)
     test("Reconciliation PASSED", data.get("status") == "PASSED")
-    test("Zero discrepancies", data.get("discrepancies_found", -1) == 0)
+    test("Zero discrepancies", data.get("mismatches", data.get("discrepancies_found", -1)) == 0)
 
     # Use a third regular user (Chris) to test isolation, as Bob is an Admin and can bypass privacy checks.
     r = client.post("/auth/register", json={"username": CHRIS_USER, "email": CHRIS_EMAIL, "password": PASSWORD, "full_name": "Chris Isolation Test"})
@@ -496,7 +516,7 @@ def main():
     # ──────────────────────────────────────────────────────────────
     if websockets:
         status_no_token = asyncio.run(test_websocket_auth(""))
-        test("WS without token → 403 or rejected", status_no_token in (403, 401))
+        test("WS without token → 403 or rejected", status_no_token in (403, 401, 4401, 4403))
         
         status_valid = asyncio.run(test_websocket_auth(bob_token))
         test("WS with Admin token → 101 Connected", status_valid == 101)
