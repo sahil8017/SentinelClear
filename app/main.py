@@ -223,29 +223,6 @@ Instrumentator(
 # ── Register routers ──
 v1_router = APIRouter(prefix="/api/v1")
 
-v1_router.include_router(auth.router)
-v1_router.include_router(accounts.router)
-v1_router.include_router(transfers.router)
-v1_router.include_router(audit.router)
-v1_router.include_router(ledger.router)
-v1_router.include_router(fraud.router)
-v1_router.include_router(notifications.router)
-v1_router.include_router(analytics.router)
-v1_router.include_router(statement.router)
-
-v1_router.include_router(loans.router)
-v1_router.include_router(aml.router)
-v1_router.include_router(whitelist.router)
-v1_router.include_router(admin_settings.router)
-
-if settings.ENABLE_CHAOS_ENDPOINTS:
-    v1_router.include_router(chaos.router)
-else:
-    logger.info("Chaos endpoints disabled in this deployment")
-
-app.include_router(v1_router)
-app.include_router(websocket.router)
-
 # ────────────────────────────── Health ──────────────────────────────
 
 @app.get("/health", tags=["Health"])
@@ -314,6 +291,31 @@ async def health_check():
     return JSONResponse(status_code=status_code, content=payload)
 
 v1_router.add_api_route("/health", health_check, methods=["GET"], tags=["Health"])
+
+
+v1_router.include_router(auth.router)
+v1_router.include_router(accounts.router)
+v1_router.include_router(transfers.router)
+v1_router.include_router(audit.router)
+v1_router.include_router(ledger.router)
+v1_router.include_router(fraud.router)
+v1_router.include_router(notifications.router)
+v1_router.include_router(analytics.router)
+v1_router.include_router(statement.router)
+
+v1_router.include_router(loans.router)
+v1_router.include_router(aml.router)
+v1_router.include_router(whitelist.router)
+v1_router.include_router(admin_settings.router)
+
+if settings.ENABLE_CHAOS_ENDPOINTS:
+    v1_router.include_router(chaos.router)
+else:
+    logger.info("Chaos endpoints disabled in this deployment")
+
+app.include_router(v1_router)
+app.include_router(websocket.router)
+
 
 
 # ────────────────────────────── Reconciliation (Manual Trigger) ──────────────────────────────
