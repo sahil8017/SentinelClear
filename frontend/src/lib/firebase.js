@@ -10,12 +10,10 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Optional measurement ID
 if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID) {
   firebaseConfig.measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID;
 }
 
-// Required keys list
 const requiredKeys = [
   'apiKey',
   'authDomain',
@@ -27,12 +25,10 @@ const requiredKeys = [
 const missingKeys = requiredKeys.filter((k) => !firebaseConfig[k]);
 
 let auth = null;
-let signInWithGoogle = async () => {
-  throw new Error('Firebase authentication is not configured in this deployment.');
-};
+let signInWithGoogle = async () => null; // default no-op
+let firebaseEnabled = false;
 
 if (missingKeys.length === 0) {
-  // All required keys present – initialize Firebase normally
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   const provider = new GoogleAuthProvider();
@@ -47,8 +43,9 @@ if (missingKeys.length === 0) {
       throw error;
     }
   };
+  firebaseEnabled = true;
 } else {
   console.warn('Missing Firebase configuration keys:', missingKeys, '- Firebase auth disabled.');
 }
 
-export { auth, signInWithGoogle };
+export { auth, signInWithGoogle, firebaseEnabled };

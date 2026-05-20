@@ -160,9 +160,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Serve the built React frontend from /frontend/dist
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
-
 setup_telemetry(app)
 
 
@@ -236,13 +233,6 @@ else:
 
 app.include_router(v1_router)
 app.include_router(websocket.router)
-
-
-@app.get("/")
-async def root():
-    """Root endpoint for health checks and service metadata."""
-    return {"status": "healthy", "service": "SentinelClear API", "version": "4.0.0"}
-
 
 # ────────────────────────────── Health ──────────────────────────────
 
@@ -326,3 +316,9 @@ async def trigger_reconciliation():
     async with AsyncSessionLocal() as db:
         result = await run_reconciliation(db)
     return result
+
+
+# Serve SPA last so /api/* and /health are not handled by StaticFiles (POST → 405).
+_frontend_dist = "frontend/dist"
+if os.path.isdir(_frontend_dist):
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")

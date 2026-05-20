@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# Hugging Face / cloud: service account JSON as a secret (not a file in the image).
+if [ -n "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ] && [ ! -f "${GOOGLE_APPLICATION_CREDENTIALS:-service-account.json}" ]; then
+  creds_path="${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account.json}"
+  printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$creds_path"
+  export GOOGLE_APPLICATION_CREDENTIALS="$creds_path"
+  echo "✅ Firebase Admin credentials written from FIREBASE_SERVICE_ACCOUNT_JSON"
+fi
+
 echo "⏳ Running database migrations..."
 alembic upgrade head
 
