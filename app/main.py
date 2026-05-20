@@ -233,6 +233,12 @@ app.include_router(v1_router)
 app.include_router(websocket.router)
 
 
+@app.get("/")
+async def root():
+    """Root endpoint for health checks and service metadata."""
+    return {"status": "healthy", "service": "SentinelClear API", "version": "4.0.0"}
+
+
 # ────────────────────────────── Health ──────────────────────────────
 
 @app.get("/health", tags=["Health"])
