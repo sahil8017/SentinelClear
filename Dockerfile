@@ -1,8 +1,11 @@
 FROM node:20-alpine AS frontend-builder
+# Bump to invalidate HF Docker layer cache when frontend changes.
+ARG FRONTEND_BUILD_ID=20260520-2
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/. .
+RUN echo "${FRONTEND_BUILD_ID}" > .build-id
 
 # Optional HF build secrets (runtime secrets also work via start.sh → firebase-config.json)
 RUN --mount=type=secret,id=VITE_FIREBASE_API_KEY,mode=0444,required=false \
@@ -18,7 +21,7 @@ RUN --mount=type=secret,id=VITE_FIREBASE_API_KEY,mode=0444,required=false \
       [ -f /run/secrets/VITE_FIREBASE_STORAGE_BUCKET ] && export VITE_FIREBASE_STORAGE_BUCKET=$(cat /run/secrets/VITE_FIREBASE_STORAGE_BUCKET); \
       [ -f /run/secrets/VITE_FIREBASE_MESSAGING_SENDER_ID ] && export VITE_FIREBASE_MESSAGING_SENDER_ID=$(cat /run/secrets/VITE_FIREBASE_MESSAGING_SENDER_ID); \
       [ -f /run/secrets/VITE_FIREBASE_APP_ID ] && export VITE_FIREBASE_APP_ID=$(cat /run/secrets/VITE_FIREBASE_APP_ID); \
-      npm run build'
+      npm run build && cp .build-id dist/build-id.txt'
 
 FROM python:3.12-slim
 WORKDIR /app

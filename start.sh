@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+if [ -f frontend/dist/build-id.txt ]; then
+  echo "📦 Frontend build: $(cat frontend/dist/build-id.txt)"
+else
+  echo "📦 Frontend build: (no build-id — rebuild Space to refresh UI)"
+fi
+
 # Hugging Face / cloud: service account JSON as a secret (not a file in the image).
 if [ -n "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ] && [ ! -f "${GOOGLE_APPLICATION_CREDENTIALS:-service-account.json}" ]; then
   creds_path="${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account.json}"

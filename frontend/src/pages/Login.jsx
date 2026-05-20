@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { setToken, getRoleFromToken } from '../lib/auth';
 import apiClient from '../lib/axios';
-import { signInWithGoogle, firebaseReady } from '../lib/firebase';
 
 export function Login() {
   const navigate = useNavigate();
@@ -13,8 +12,8 @@ export function Login() {
   const [password, setPassword] = useState('');
 
   useEffect(() => {
-    firebaseReady.then(() => {
-      import('../lib/firebase').then((m) => setGoogleAuthEnabled(m.firebaseEnabled));
+    import('../lib/firebase').then((m) => {
+      m.firebaseReady.then(() => setGoogleAuthEnabled(m.firebaseEnabled));
     });
   }, []);
 
@@ -52,6 +51,7 @@ export function Login() {
     setLoading(true);
     setError(null);
     try {
+      const { firebaseReady, signInWithGoogle } = await import('../lib/firebase');
       await firebaseReady;
       const result = await signInWithGoogle();
       if (!result || !result.idToken) {

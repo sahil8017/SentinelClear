@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminProtectedRoute from './components/AdminProtectedRoute';
 import { Layout } from './components/Layout';
-import { Login } from './pages/Login';
+
+// Lazy-load login so Firebase is not evaluated on Home/Register (avoids crash when config missing).
+const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })));
 import { Register } from './pages/Register';
 import { Home } from './pages/Home';
 import { Dashboard } from './pages/Dashboard';
@@ -40,7 +42,14 @@ export default function App() {
         <Route path="/" element={<Home />} />
         
 
-        <Route path="/login" element={<Login />} />
+        <Route
+          path="/login"
+          element={
+            <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-[#6B7C93]">Loading…</div>}>
+              <Login />
+            </Suspense>
+          }
+        />
         <Route path="/register" element={<Register />} />
         
         <Route path="/app" element={<ProtectedRoute />}>
