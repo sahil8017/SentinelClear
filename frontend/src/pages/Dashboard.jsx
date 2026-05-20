@@ -8,6 +8,13 @@ import { useMinLoadingTime } from '../lib/useMinLoadingTime';
 import { Skeleton } from '../components/ui/Skeleton';
 import DepositModal from '../components/DepositModal';
 
+const parseAmount = (val) => {
+  if (val === undefined || val === null) return 0;
+  const cleaned = String(val).replace(/[^0-9.-]+/g, '');
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 export function Dashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -41,11 +48,11 @@ export function Dashboard() {
 
         const sent = historyData
           .filter(tx => tx.sender_account_id === currentUser.id && tx.status === 'COMPLETED')
-          .reduce((sum, tx) => sum + Number(tx.amount), 0);
+          .reduce((sum, tx) => sum + parseAmount(tx.amount), 0);
         
         const received = historyData
           .filter(tx => tx.receiver_account_id === currentUser.id && tx.status === 'COMPLETED')
-          .reduce((sum, tx) => sum + Number(tx.amount), 0);
+          .reduce((sum, tx) => sum + parseAmount(tx.amount), 0);
 
         setPersonalStats({ sent, received, count: historyData.length });
 
@@ -53,7 +60,7 @@ export function Dashboard() {
           .filter(tx => tx.status === 'COMPLETED')
           .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-        const currentBalance = currentUser.balance || 0;
+        const currentBalance = parseAmount(currentUser.balance);
         const timeline = [];
         let runningBalance = currentBalance;
 
@@ -65,9 +72,9 @@ export function Dashboard() {
 
         for (const tx of completedTxns) {
           if (tx.sender_account_id === currentUser.id) {
-            runningBalance += Number(tx.amount);
+            runningBalance += parseAmount(tx.amount);
           } else if (tx.receiver_account_id === currentUser.id) {
-            runningBalance -= Number(tx.amount);
+            runningBalance -= parseAmount(tx.amount);
           }
 
           timeline.push({
@@ -106,10 +113,10 @@ export function Dashboard() {
             const label = txDate.toLocaleDateString('en-IN', { weekday: 'short' });
             if (dayMap[label]) {
               if (tx.receiver_account_id === currentUser.id) {
-                dayMap[label].income += Number(tx.amount);
+                dayMap[label].income += parseAmount(tx.amount);
               }
               if (tx.sender_account_id === currentUser.id) {
-                dayMap[label].expenses += Number(tx.amount);
+                dayMap[label].expenses += parseAmount(tx.amount);
               }
             }
           }
