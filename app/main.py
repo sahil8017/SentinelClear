@@ -1,13 +1,15 @@
 """SentinelClear — FastAPI application entry-point."""
 
 import logging
+import os
 import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, status, APIRouter, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.middleware.sla import SLAMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from passlib.context import CryptContext
@@ -157,6 +159,9 @@ app = FastAPI(
     version="4.0.0",
     lifespan=lifespan,
 )
+
+# Serve the built React frontend from /frontend/dist
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 setup_telemetry(app)
 
