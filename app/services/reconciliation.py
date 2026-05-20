@@ -74,16 +74,16 @@ async def run_reconciliation(db: AsyncSession) -> dict:
             expected_from_ledger = last_entry.balance_after
             actual = account.balance
 
-            diff = round(abs(actual - expected_from_ledger), 6)
+            diff = float(round(abs(actual - expected_from_ledger), 6))
             if diff > 0.01:
                 total_drift += diff
                 discrepancies.append({
                     "account_id": account.id,
-                    "stored_balance": actual,
-                    "ledger_balance": expected_from_ledger,
-                    "difference": diff,
-                    "total_credits": total_credits,
-                    "total_debits": total_debits,
+                    "stored_balance": float(actual),
+                    "ledger_balance": float(expected_from_ledger),
+                    "difference": float(diff),
+                    "total_credits": float(total_credits),
+                    "total_debits": float(total_debits),
                 })
                 
         offset += batch_size

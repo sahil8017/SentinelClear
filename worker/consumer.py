@@ -151,60 +151,53 @@ async def _create_notifications(db: AsyncSession, event: dict) -> None:
 
 async def _update_daily_stats(db: AsyncSession, event: dict) -> None:
     """Update daily analytics aggregation for sender and receiver accounts."""
+    from decimal import Decimal
+    from sqlalchemy.dialects.postgresql import insert
+
     today = date.today()
-    amount = event.get("amount", 0)
+    amount = event.get("amount", Decimal("0.00"))
     status = event.get("status", "")
     sender_acct = event.get("sender_account_id", "")
     receiver_acct = event.get("receiver_account_id", "")
     is_flagged = status == "FLAGGED"
 
-    # Sender stats
-    result = await db.execute(
-        select(AccountDailyStat).where(
-            AccountDailyStat.account_id == sender_acct,
-            AccountDailyStat.stat_date == today,
-        )
+    # Sender stats upsert
+    stmt_sender = insert(AccountDailyStat).values(
+        account_id=sender_acct,
+        stat_date=today,
+        total_sent=amount if status == "COMPLETED" else Decimal("0.00"),
+        total_received=Decimal("0.00"),
+        transfer_count=1,
+        flagged_count=1 if is_flagged else 0,
     )
-    sender_stat = result.scalar_one_or_none()
-    if sender_stat:
-        if status == "COMPLETED":
-            sender_stat.total_sent += amount
-        sender_stat.transfer_count += 1
-        if is_flagged:
-            sender_stat.flagged_count += 1
-    else:
-        sender_stat = AccountDailyStat(
-            account_id=sender_acct,
-            stat_date=today,
-            total_sent=amount if status == "COMPLETED" else 0.0,
-            total_received=0.0,
-            transfer_count=1,
-            flagged_count=1 if is_flagged else 0,
-        )
-        db.add(sender_stat)
+    stmt_sender = stmt_sender.on_conflict_do_update(
+        index_elements=["account_id", "stat_date"],
+        set_={
+            "total_sent": AccountDailyStat.total_sent + (amount if status == "COMPLETED" else Decimal("0.00")),
+            "transfer_count": AccountDailyStat.transfer_count + 1,
+            "flagged_count": AccountDailyStat.flagged_count + (1 if is_flagged else 0),
+        }
+    )
+    await db.execute(stmt_sender)
 
-    # Receiver stats (only for completed)
+    # Receiver stats upsert (only for completed)
     if status == "COMPLETED":
-        result = await db.execute(
-            select(AccountDailyStat).where(
-                AccountDailyStat.account_id == receiver_acct,
-                AccountDailyStat.stat_date == today,
-            )
+        stmt_receiver = insert(AccountDailyStat).values(
+            account_id=receiver_acct,
+            stat_date=today,
+            total_sent=Decimal("0.00"),
+            total_received=amount,
+            transfer_count=1,
+            flagged_count=0,
         )
-        receiver_stat = result.scalar_one_or_none()
-        if receiver_stat:
-            receiver_stat.total_received += amount
-            receiver_stat.transfer_count += 1
-        else:
-            receiver_stat = AccountDailyStat(
-                account_id=receiver_acct,
-                stat_date=today,
-                total_sent=0.0,
-                total_received=amount,
-                transfer_count=1,
-                flagged_count=0,
-            )
-            db.add(receiver_stat)
+        stmt_receiver = stmt_receiver.on_conflict_do_update(
+            index_elements=["account_id", "stat_date"],
+            set_={
+                "total_received": AccountDailyStat.total_received + amount,
+                "transfer_count": AccountDailyStat.transfer_count + 1,
+            }
+        )
+        await db.execute(stmt_receiver)
 
 
 async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None:

@@ -9,7 +9,7 @@ import uuid
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from passlib.context import CryptContext
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.database import AsyncSessionLocal
 from app.models import (
@@ -22,6 +22,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 async def seed():
     print("🌱 Starting Database Seed...")
     async with AsyncSessionLocal() as db:
+        # Truncate tables to make the seed idempotent and avoid duplicates
+        print("Truncating transactional tables...")
+        await db.execute(text("TRUNCATE TABLE ledger_entries, transfers, audit_logs, balance_snapshots, loans CASCADE;"))
+        await db.flush()
         
         # 1. System & Admin Users
         print("Creating system users...")
@@ -62,9 +66,11 @@ async def seed():
                 id=TREASURY_ACCOUNT_ID,
                 owner_id=system_user.id,
                 account_type="treasury",
-                balance=Decimal("1000000000.00")  # Large reserve
+                balance=Decimal("1000000000.00")  # Starting balance before transfer
             )
             db.add(treasury)
+        else:
+            treasury.balance = Decimal("1000000000.00")
 
         # Admin Account
         admin_acct_res = await db.execute(select(Account).where(Account.owner_id == admin_user.id))
@@ -73,17 +79,19 @@ async def seed():
             admin_acct = Account(
                 owner_id=admin_user.id,
                 account_type="savings",
-                balance=Decimal("150000.00")
+                balance=Decimal("99550.00")  # Starting balance
             )
             db.add(admin_acct)
             await db.flush()
+        else:
+            admin_acct.balance = Decimal("99550.00")
 
         # 2. Demo Users (Alice, Bob, Charlie)
         print("Creating demo users & accounts...")
         users_data = [
-            {"username": "alice", "email": "alice@example.com", "balance": "55000.00", "score": 750, "kyc": "VERIFIED"},
-            {"username": "bob", "email": "bob@example.com", "balance": "12000.00", "score": 620, "kyc": "VERIFIED"},
-            {"username": "charlie", "email": "charlie@example.com", "balance": "85000.00", "score": 810, "kyc": "VERIFIED"},
+            {"username": "alice", "email": "alice@example.com", "balance": "45500.00", "score": 750, "kyc": "VERIFIED"},
+            {"username": "bob", "email": "bob@example.com", "balance": "9950.00", "score": 620, "kyc": "VERIFIED"},
+            {"username": "charlie", "email": "charlie@example.com", "balance": "97000.00", "score": 810, "kyc": "VERIFIED"},
         ]
         
         user_map = {}
@@ -129,15 +137,16 @@ async def seed():
                 acct_map[u["username"]] = acct
             else:
                 user_map[u["username"]] = user
-                # get acct
+                # get acct and reset its balance to starting
                 acct_res = await db.execute(select(Account).where(Account.owner_id == user.id))
-                acct_map[u["username"]] = acct_res.scalars().first()
+                acct = acct_res.scalars().first()
+                acct.balance = Decimal(u["balance"])
+                acct_map[u["username"]] = acct
 
         # 3. Create Transfers
         print("Generating mock transfers...")
         now = datetime.now(timezone.utc)
         
-        # We will generate a few transfers from treasury to admin, alice to bob, etc.
         transfers_data = [
             {"from": TREASURY_ACCOUNT_ID, "to": admin_acct.id, "amount": "50000.00", "status": "COMPLETED", "risk": 0.0, "time_offset": 30},
             {"from": acct_map["alice"].id, "to": acct_map["bob"].id, "amount": "2500.00", "status": "COMPLETED", "risk": 0.1, "time_offset": 25},
@@ -149,15 +158,24 @@ async def seed():
             {"from": acct_map["alice"].id, "to": acct_map["charlie"].id, "amount": "999999.00", "status": "FAILED", "risk": 0.2, "time_offset": 5},
         ]
         
+        running_balances = {
+            TREASURY_ACCOUNT_ID: Decimal("1000000000.00"),
+            admin_acct.id: Decimal("99550.00"),
+            acct_map["alice"].id: Decimal("45500.00"),
+            acct_map["bob"].id: Decimal("9950.00"),
+            acct_map["charlie"].id: Decimal("97000.00")
+        }
+        
         for idx, t in enumerate(transfers_data):
             tid = str(uuid.uuid4())
             created_at = now - timedelta(days=t["time_offset"])
+            amount_dec = Decimal(t["amount"])
             
             tx = Transfer(
                 id=tid,
                 sender_account_id=t["from"],
                 receiver_account_id=t["to"],
-                amount=Decimal(t["amount"]),
+                amount=amount_dec,
                 status=t["status"],
                 risk_score=t["risk"],
                 ml_risk_score=t["risk"] - 0.05 if t["risk"] >= 0.05 else 0.0,
@@ -167,15 +185,38 @@ async def seed():
             db.add(tx)
             
             if t["status"] == "COMPLETED":
-                # Double entry
-                db.add(LedgerEntry(transfer_id=tid, account_id=t["from"], entry_type="DEBIT", amount=Decimal(t["amount"]), balance_after=Decimal("0.0"), created_at=created_at.replace(tzinfo=None)))
-                db.add(LedgerEntry(transfer_id=tid, account_id=t["to"], entry_type="CREDIT", amount=Decimal(t["amount"]), balance_after=Decimal("0.0"), created_at=created_at.replace(tzinfo=None)))
+                running_balances[t["from"]] -= amount_dec
+                running_balances[t["to"]] += amount_dec
+                
+                db.add(LedgerEntry(
+                    transfer_id=tid, 
+                    account_id=t["from"], 
+                    entry_type="DEBIT", 
+                    amount=amount_dec, 
+                    balance_after=running_balances[t["from"]], 
+                    created_at=created_at.replace(tzinfo=None)
+                ))
+                db.add(LedgerEntry(
+                    transfer_id=tid, 
+                    account_id=t["to"], 
+                    entry_type="CREDIT", 
+                    amount=amount_dec, 
+                    balance_after=running_balances[t["to"]], 
+                    created_at=created_at.replace(tzinfo=None)
+                ))
             
             # Audit log
             db.add(AuditLog(
                 transfer_id=tid, action=f"TRANSFER_{t['status']}", previous_hash="mock_prev", current_hash="mock_curr",
                 sender_account_id=t["from"], receiver_account_id=t["to"], created_at=created_at.replace(tzinfo=None)
             ))
+
+        # Apply final running balances to Account objects
+        treasury.balance = running_balances[TREASURY_ACCOUNT_ID]
+        admin_acct.balance = running_balances[admin_acct.id]
+        acct_map["alice"].balance = running_balances[acct_map["alice"].id]
+        acct_map["bob"].balance = running_balances[acct_map["bob"].id]
+        acct_map["charlie"].balance = running_balances[acct_map["charlie"].id]
 
         # 4. Create Loans
         print("Generating mock loans...")

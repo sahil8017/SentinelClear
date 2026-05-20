@@ -60,11 +60,11 @@ jobs:
           echo '{"type":"service_account","project_id":"ci-placeholder"}' > service-account.json
       - name: Start services
         run: |
-          docker compose up -d --build postgres-db rabbitmq redis neo4j api-gateway async-worker
+          docker compose up -d --build postgres-db rabbitmq redis neo4j api-gateway async-worker nginx
       - name: Wait for API health
         run: |
           echo "Waiting for API health..."
-          max_attempts=18
+          max_attempts=36
           for i in $(seq 1 "$max_attempts"); do
             health_response="$(curl -sS http://localhost:8000/health 2>/dev/null || true)"
             if [ -n "$health_response" ] && echo "$health_response" | grep -q '"status":"healthy"'; then
@@ -74,6 +74,8 @@ jobs:
             sleep 5
           done
           echo "❌ API failed health checks after $max_attempts attempts"
+          echo "Checking Docker logs for debugging:"
+          docker compose logs
           exit 1
       - name: Run Python tests
         run: docker compose exec -T api-gateway python tests/test_everything.py
