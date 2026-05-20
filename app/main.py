@@ -99,6 +99,15 @@ async def lifespan(app: FastAPI):
     await redis_cache.connect()
     logger.info("✅ Redis cache ready")
 
+    # Self-heal simulated chaos flags on startup to prevent lockouts
+    if redis_cache._pool is not None:
+        try:
+            await redis_cache._pool.set("chaos:db_paused", "false")
+            await redis_cache._pool.set("chaos:worker_paused", "false")
+            logger.info("✅ Self-healed chaos flags on startup (simulated DB partition cleared)")
+        except Exception as e:
+            logger.error(f"Failed to reset chaos flags on startup: {e}")
+
     # Connect to Neo4j
     try:
         await neo4j_service.connect()
