@@ -3,5 +3,5 @@
     "cwd": "frontend",
     "command": "npm ci && npm run build"
   },
-  "outputDirectory": "frontend/dist"
+  "outputDirectory": "dist"
 }
