@@ -23,8 +23,8 @@ async def seed():
     print("🌱 Starting Database Seed...")
     async with AsyncSessionLocal() as db:
         # Truncate tables to make the seed idempotent and avoid duplicates
-        print("Truncating transactional tables...")
-        await db.execute(text("TRUNCATE TABLE ledger_entries, transfers, audit_logs, balance_snapshots, loans CASCADE;"))
+        print("Truncating tables (including users and accounts) to clean up leftover test data...")
+        await db.execute(text("TRUNCATE TABLE users, accounts, credit_profiles, ledger_entries, transfers, audit_logs, balance_snapshots, loans CASCADE;"))
         await db.flush()
         
         # 1. System & Admin Users
