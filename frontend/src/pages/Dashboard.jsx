@@ -41,11 +41,11 @@ export function Dashboard() {
 
         const sent = historyData
           .filter(tx => tx.sender_account_id === currentUser.id && tx.status === 'COMPLETED')
-          .reduce((sum, tx) => sum + tx.amount, 0);
+          .reduce((sum, tx) => sum + Number(tx.amount), 0);
         
         const received = historyData
           .filter(tx => tx.receiver_account_id === currentUser.id && tx.status === 'COMPLETED')
-          .reduce((sum, tx) => sum + tx.amount, 0);
+          .reduce((sum, tx) => sum + Number(tx.amount), 0);
 
         setPersonalStats({ sent, received, count: historyData.length });
 
@@ -65,9 +65,9 @@ export function Dashboard() {
 
         for (const tx of completedTxns) {
           if (tx.sender_account_id === currentUser.id) {
-            runningBalance += tx.amount;
+            runningBalance += Number(tx.amount);
           } else if (tx.receiver_account_id === currentUser.id) {
-            runningBalance -= tx.amount;
+            runningBalance -= Number(tx.amount);
           }
 
           timeline.push({
@@ -106,10 +106,10 @@ export function Dashboard() {
             const label = txDate.toLocaleDateString('en-IN', { weekday: 'short' });
             if (dayMap[label]) {
               if (tx.receiver_account_id === currentUser.id) {
-                dayMap[label].income += tx.amount;
+                dayMap[label].income += Number(tx.amount);
               }
               if (tx.sender_account_id === currentUser.id) {
-                dayMap[label].expenses += tx.amount;
+                dayMap[label].expenses += Number(tx.amount);
               }
             }
           }
