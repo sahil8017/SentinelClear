@@ -12,7 +12,7 @@
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?style=flat-square&logo=rabbitmq&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)
+![Build](https://img.shields.io/github/actions/workflow/status/sahil8017/SentinelClear/ci.yml?branch=main&style=flat-square&logo=github-actions&logoColor=white&label=CI/CD)
 
 **A production-grade ACID-compliant double-entry ledger system with an advanced heuristic risk engine,
 Neo4j-powered AML graph topology analysis, and full Indian regulatory compliance (RBI/NPCI/FIU).**
@@ -37,7 +37,7 @@ graph TB
     end
 
     subgraph API Gateway
-        C[FastAPI<br/>Uvicorn ASGI]
+        C[FastAPI Gateway<br/>Uvicorn ASGI (3x Replicas)]
     end
 
     subgraph Compute
@@ -54,11 +54,12 @@ graph TB
     end
 
     subgraph Async Worker
-        K[Consumer Process<br/>Notifications + Analytics]
+        K[Consumer Process<br/>Notifications + Ingestion (2x Replicas)]
     end
 
-    subgraph Observability
+    subgraph Observability & Tracing
         L[Prometheus + Grafana<br/>Metrics Dashboard]
+        M[OpenTelemetry Collector<br/>+ Grafana Tempo Tracing]
     end
 
     A -->|HTTPS| B
@@ -75,6 +76,8 @@ graph TB
     K -->|Write| G
     K -->|Ingest| I
     C -->|Instrument| L
+    C -->|Trace| M
+    K -->|Trace| M
 
     style A fill:#6366f1,stroke:#4f46e5,color:#fff
     style B fill:#0f172a,stroke:#334155,color:#fff
@@ -85,6 +88,7 @@ graph TB
     style J fill:#FF6600,stroke:#cc5200,color:#fff
     style K fill:#7c3aed,stroke:#6d28d9,color:#fff
     style L fill:#f59e0b,stroke:#d97706,color:#000
+    style M fill:#ec4899,stroke:#db2777,color:#fff
 ```
 
 ---
@@ -93,11 +97,11 @@ graph TB
 
 ### 🔐 Cryptographic Double-Entry Ledger
 
-- **ACID-compliant** atomic fund transfers with `SELECT ... FOR UPDATE` row-level locking
-- **Deterministic deadlock prevention** via ascending UUID lock ordering across all account pairs
-- **SHA-256 hash-chained audit trail** — every ledger mutation is cryptographically linked to its predecessor, creating a tamper-evident chain verifiable at any point
-- **Automated reconciliation engine** — scheduled balance verification recomputes every account from raw ledger entries and flags sub-paisa discrepancies
-- **PDF statement generation** — bank-grade ReportLab statements with running balances, summary cards, and audit chain hash footer
+- **ACID-compliant** atomic fund transfers with `SELECT ... FOR UPDATE` row-level locking.
+- **Deterministic deadlock prevention** via ascending UUID lock ordering across all account pairs.
+- **SHA-256 hash-chained audit trail** — every ledger mutation is cryptographically linked to its predecessor, creating a tamper-evident chain verifiable at any point.
+- **Automated reconciliation engine** — scheduled balance verification recomputes every account from raw ledger entries and flags sub-paisa discrepancies.
+- **PDF statement generation** — bank-grade ReportLab statements with running balances, summary cards, and audit chain hash footer.
 
 ### 🧠 Layered Risk Engine
 
@@ -106,23 +110,23 @@ graph TB
 | **Regulatory Blocks** | Indian Banking Mandates | PAN Mandate (§114B), RTGS floor (₹2L), UPI daily cap (₹1L), NPCI velocity (20 txn/day), Beneficiary cooling-off |
 | **Heuristic Detection** | Real-time Behavioral Analysis | Split-structuring (smurfing), account drain prediction, burst velocity, time-of-day analysis, recipient concentration, impossible travel detection |
 
-- Real-time composite risk score `[0.0, 1.0]` with configurable review (`≥0.4`) and block (`≥0.7`) thresholds
-- **Impossible Travel Detection** — Haversine geospatial velocity analysis flags transactions from physically impossible locations (e.g., Mumbai → Delhi in 2 minutes)
-- **Automated FIU STR Generation** — Suspicious Transaction Reports auto-generated as PDF payloads for Financial Intelligence Unit filing
+- Real-time composite risk score `[0.0, 1.0]` with configurable review (`≥0.4`) and block (`≥0.7`) thresholds.
+- **Impossible Travel Detection** — Haversine geospatial velocity analysis flags transactions from physically impossible locations (e.g., Mumbai → Delhi in 2 minutes).
+- **Automated FIU STR Generation** — Suspicious Transaction Reports auto-generated as PDF payloads for Financial Intelligence Unit filing.
 
 ### 🕸️ Neo4j AML Graph Topology
 
-- **Native Cypher traversal** for circular trading detection (`A→B→C→…→A` loops up to depth 6)
-- **Connected-component clustering** to identify coordinated fraud rings
-- **Force-directed React Flow visualization** — live network graph with risk-colored nodes, animated flagged edges, and transaction volume labels
-- **Transfer event ingestion** via async worker — every completed transaction creates `Account` nodes and `TRANSFERRED` edges in real-time
+- **Native Cypher traversal** for circular trading detection (`A→B→C→…→A` loops up to depth 6).
+- **Connected-component clustering** to identify coordinated fraud rings.
+- **Force-directed React Flow visualization** — live network graph with risk-colored nodes, animated flagged edges, and transaction volume labels.
+- **Transfer event ingestion** via async worker — every completed transaction creates `Account` nodes and `TRANSFERRED` edges in real-time.
 
 ### 🏦 Credit Hub & Maker-Checker
 
-- **ML-powered credit scoring** — Random Forest model evaluating income stability, FOIR, account age, and transaction history to produce CIBIL-equivalent scores
-- **RBI-aligned DSCR underwriting** with `VERY_HIGH` / `HIGH` / `MODERATE` / `LOW` risk categories
-- **Four Eyes Principle** — high-value corporate transfers (`≥₹10L`) require cryptographic separation of duties: the initiator cannot be the approver
-- **Atomic loan disbursement & repayment** — Treasury → User double-entry with hash-chained audit trail
+- **ML-powered credit scoring** — Random Forest model evaluating income stability, FOIR, account age, and transaction history to produce CIBIL-equivalent scores.
+- **RBI-aligned DSCR underwriting** with `VERY_HIGH` / `HIGH` / `MODERATE` / `LOW` risk categories.
+- **Four Eyes Principle** — high-value corporate transfers (`≥₹10L`) require cryptographic separation of duties: the initiator cannot be the approver.
+- **Atomic loan disbursement & repayment** — Treasury → User double-entry with hash-chained audit trail.
 
 ### 🛡️ UPI Safety Framework (RBI/NPCI Mandated)
 
@@ -150,6 +154,7 @@ graph TB
 | **ML Pipeline** | scikit-learn + pandas | Random Forest credit scoring |
 | **PDF Engine** | ReportLab | Bank-grade statements & FIU STR reports |
 | **Monitoring** | Prometheus + Grafana | Real-time metrics, dashboards, alerting |
+| **Distributed Tracing** | OpenTelemetry + Grafana Tempo | Distributed request tracing & bottleneck analysis |
 | **Reverse Proxy** | Nginx | TLS termination, static assets, WebSocket upgrade |
 
 ### Frontend
@@ -167,7 +172,7 @@ graph TB
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| **Containerization** | Docker + Docker Compose | Full-stack orchestration (10 services) |
+| **Containerization** | Docker + Docker Compose | Full-stack orchestration (11 services) |
 | **Migrations** | Alembic | Schema version control |
 | **Scheduling** | APScheduler | Automated reconciliation jobs |
 | **Chaos Engineering** | Docker SDK | Controlled failure injection (kill-db, kill-worker) |
@@ -176,6 +181,10 @@ graph TB
 
 ## Recent Updates (Stabilization & Parity)
 
+- **CI/CD Pipeline Integration**: Added GitHub Actions workflow to automate linting (Ruff/Mypy), security checks (Bandit/Trivy), full E2E Docker Compose test validation, and image publish tasks.
+- **Docker Image Tag Compliance**: Standardized Docker registry tag casing by downcasing the repository name in the publication workflow to adhere to OCI registry specifications.
+- **Deployment Automation**: Added production deployment blueprints (`docker-compose.prod.yml`, `nginx/nginx.prod.conf`) and a shell installer (`scripts/deploy.sh`) supporting automated Certbot SSL provisioning.
+- **Database & Graph DB Concurrency Fixes**: Resolved index validation and concurrency exceptions in the seeding scripts and asynchronous worker Neo4j ingest sessions.
 - **Backend Ledger Persistence**: Resolved a cascade of `TypeError` exceptions inside the transfer risk evaluation engine caused by implicit mathematical operations mixing SQLAlchemy `Decimal` instances and raw `float` data types.
 - **Audit Ledger Schema Patch**: Hotfixed the `audit_logs` database table and SQLAlchemy ORM by adding the missing `sender_account_id` and `receiver_account_id` properties to support the new dual-entry partitioning strategy.
 - **Dashboard Stability**: Applied CSS structural constraints to ensure `Recharts` receives valid parent dimensions, eliminating frontend component crashes due to `width(-1)` evaluation.
@@ -185,38 +194,107 @@ graph TB
 
 ## Quickstart
 
-```bash
-# Clone the repository
-git clone https://github.com/sahil8017/SentinelClear.git
+### Local Development Setup
 
-# Navigate to project root
+Follow these steps to run a development instance of SentinelClear on your machine:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/sahil8017/SentinelClear.git
 cd SentinelClear
 
-# Launch the full stack (10 containers)
-docker-compose up -d --build
-```
+# 2. Setup your local env (copy default templates)
+cp .env.example .env
 
-### CI Validation (Local)
+# 3. Launch the full local stack (Docker)
+docker compose up -d --build
 
-```bash
-bash scripts/ci-validate.sh
-```
-
-```powershell
-.\scripts\ci-validate.ps1
+# 4. Seed the database with mock users, accounts, transfers, and loans
+docker compose exec -T api-gateway python scripts/seed_data.py
 ```
 
 ### Local Access Points
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| **Frontend** | [`http://localhost`](http://localhost) | Register a new account |
+| **Frontend UI** | [`http://localhost`](http://localhost) | Use seeded credentials or register |
 | **API Gateway** | [`http://localhost:8000`](http://localhost:8000) | — |
 | **API Documentation** | [`http://localhost:8000/docs`](http://localhost:8000/docs) | Interactive Swagger UI |
 | **Neo4j Browser** | [`http://localhost:7474`](http://localhost:7474) | `neo4j` / `sentinel_neo4j_2024` |
 | **RabbitMQ Management** | [`http://localhost:15672`](http://localhost:15672) | `sentinel` / `sentinel_rabbit_2024` |
 | **Grafana Dashboard** | [`http://localhost/grafana`](http://localhost/grafana) | `admin` / `admin` |
-| **Prometheus** | [`http://localhost:9090`](http://localhost:9090) | — |
+| **Prometheus UI** | [`http://localhost:9090`](http://localhost:9090) | — |
+
+#### Seeded Demo Accounts
+Use these pre-configured accounts after running `scripts/seed_data.py`:
+* **System Admin**: Username `admin` / Password `admin123` / Transaction PIN `1234`
+* **Demo Customers**: Usernames `alice`, `bob`, `charlie` / Password `demo123` / Transaction PIN `1234`
+
+### Local CI Validation
+Validate changes locally using the same integration tests that run in the CI/CD pipeline:
+
+**Linux / macOS:**
+```bash
+bash scripts/ci-validate.sh
+```
+
+**Windows PowerShell:**
+```powershell
+.\scripts\ci-validate.ps1
+```
+
+---
+
+## CI/CD Pipeline
+
+The project utilizes a comprehensive GitHub Actions workflow (`.github/workflows/ci.yml`) to validate every commit and pull request.
+
+The pipeline comprises four sequential stages:
+1. **Linting & Formatting**:
+   - Runs `ruff check` for Python linting.
+   - Runs `mypy` for static type verification.
+2. **Security Scan**:
+   - Runs `bandit` to identify common security issues in Python code.
+   - Runs `trivy` to scan repository dependencies and filesystem configurations for vulnerabilities.
+3. **Integration Testing**:
+   - Orchestrates the full multi-container stack inside GitHub Actions.
+   - Executes the end-to-end integration test suite (`tests/test_everything.py`) against the live instances to verify health, API functionality, audit chains, fraud rules, and WebSocket security.
+4. **Docker Publication**:
+   - Builds the production API gateway image.
+   - Pushes it to GitHub Container Registry (GHCR) as `ghcr.io/sahil8017/sentinelclear/api-gateway:latest` on successful merge to `main`.
+
+---
+
+## Production Deployment
+
+SentinelClear is optimized for production-grade high availability using docker-compose replica pools and TLS reverse proxies.
+
+### Production Blueprint Components
+- **API Load Balancer**: Nginx terminates SSL/TLS, serves compiled frontend assets, upgrades WebSocket connections, and load-balances traffic across API gateway replicas.
+- **Service Replication**:
+  - `api-gateway`: Automatically scaled to **3 active replicas** utilizing uvicorn multi-workers.
+  - `async-worker`: Scaled to **2 active replicas** to handle parallel RabbitMQ events.
+- **Telemetry Mesh**: Collects logs, traces, and metrics via OpenTelemetry collector, feeding them to Tempo and Prometheus respectively.
+- **Auto-Certificate Renewal**: Integrated `certbot` container polls and automatically renews Let's Encrypt certificates every 12 hours.
+
+### Automated Production Deployment
+
+Execute the automated script on your production Ubuntu instance:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/sahil8017/SentinelClear.git
+cd SentinelClear
+
+# 2. Setup production env
+cp .env.example .env.production
+# Edit the .env.production with your secure, production-grade credentials
+
+# 3. Run the deployment automation
+bash scripts/deploy.sh
+```
+
+The script will automatically configure the UFW firewall, request SSL certificates from Let's Encrypt for your domain, and start the high-availability stack using `docker-compose.prod.yml`.
 
 ---
 
@@ -245,6 +323,10 @@ The FastAPI gateway exposes **60+ endpoints** across 12 route groups:
 
 ```
 SentinelClear/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # GitHub Actions CI/CD Pipeline
+├── alembic/                       # Database migration scripts
 ├── app/
 │   ├── main.py                    # FastAPI application entry point
 │   ├── config.py                  # Centralized Pydantic settings
@@ -282,19 +364,30 @@ SentinelClear/
 │   └── ml/
 │       ├── model/                 # Trained Random Forest artifacts
 │       └── train_loan_model.py    # Model training pipeline
-├── worker/
-│   └── consumer.py                # Async RabbitMQ consumer + Neo4j ingestion
+├── docker-compose.yml             # Local developer compose setup
+├── docker-compose.prod.yml        # Production high-availability blueprint
+├── Dockerfile                     # Multi-stage Python build
+├── docs/                          # Project design and technical docs
 ├── frontend/
 │   └── src/                       # React 18 SPA (Stripe design system)
-├── nginx/
-│   └── nginx.conf                 # Reverse proxy + WebSocket upgrade
 ├── monitoring/
-│   └── prometheus.yml             # Scrape configuration
-├── alembic/                       # Database migration scripts
-├── tests/                         # pytest + pytest-asyncio test suite
-├── docker-compose.yml             # Full-stack orchestration (10 services)
-├── Dockerfile                     # Multi-stage Python build
-└── requirements.txt               # Pinned Python dependencies
+│   ├── prometheus.yml             # Prometheus configurations
+│   ├── tempo-config.yml           # Grafana Tempo configurations
+│   └── otel-config.yml            # OpenTelemetry collector configurations
+├── nginx/
+│   ├── nginx.conf                 # Dev reverse proxy config
+│   └── nginx.prod.conf            # Prod reverse proxy config
+├── requirements.txt               # Pinned Python backend dependencies
+├── requirements-worker.txt        # Pinned worker dependencies
+├── scripts/
+│   ├── ci-validate.sh             # Linux local E2E validation script
+│   ├── ci-validate.ps1            # Windows local E2E validation script
+│   ├── deploy.sh                  # Ubuntu production installer
+│   └── seed_data.py               # Database seeder script
+├── tests/                         # Pytest + integration test suite
+└── worker/
+    ├── consumer.py                # Async RabbitMQ consumer + Neo4j ingestion
+    └── Dockerfile                 # Worker Docker image
 ```
 
 ---
