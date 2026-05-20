@@ -38,7 +38,14 @@ def do_run_migrations(connection):
 
 
 async def run_async_migrations() -> None:
-    connectable = create_async_engine(settings.DATABASE_URL)
+    url = settings.DATABASE_URL
+    connect_args = {}
+    if "sslmode" in url or "ssl" in url:
+        if "?" in url:
+            url = url.split("?")[0]
+        connect_args["ssl"] = True
+        
+    connectable = create_async_engine(url, connect_args=connect_args)
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()
