@@ -37,7 +37,7 @@ graph TB
     end
 
     subgraph API Gateway
-        C[FastAPI Gateway<br/>Uvicorn ASGI (3x Replicas)]
+        C["FastAPI Gateway<br/>Uvicorn ASGI (3x Replicas)"]
     end
 
     subgraph Compute
@@ -54,7 +54,7 @@ graph TB
     end
 
     subgraph Async Worker
-        K[Consumer Process<br/>Notifications + Ingestion (2x Replicas)]
+        K["Consumer Process<br/>Notifications + Ingestion (2x Replicas)"]
     end
 
     subgraph Observability & Tracing
