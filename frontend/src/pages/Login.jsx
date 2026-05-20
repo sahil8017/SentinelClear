@@ -1,15 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { setToken, getRoleFromToken } from '../lib/auth';
 import apiClient from '../lib/axios';
-import { signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle, firebaseReady } from '../lib/firebase';
 
 export function Login() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [googleAuthEnabled, setGoogleAuthEnabled] = useState(false);
   const [error, setError] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    firebaseReady.then(() => {
+      import('../lib/firebase').then((m) => setGoogleAuthEnabled(m.firebaseEnabled));
+    });
+  }, []);
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
@@ -45,6 +52,7 @@ export function Login() {
     setLoading(true);
     setError(null);
     try {
+      await firebaseReady;
       const result = await signInWithGoogle();
       if (!result || !result.idToken) {
         throw new Error("Authentication cancelled by user.");
@@ -134,19 +142,24 @@ export function Login() {
             </button>
           </form>
 
-          <div className="relative flex items-center justify-center py-2">
-            <div className="absolute w-full border-t border-[#e3e8ee]"></div>
-            <span className="relative bg-white px-4 text-[12px] font-medium text-[#6B7C93]">or continue with</span>
-          </div>
+          {googleAuthEnabled && (
+            <>
+              <div className="relative flex items-center justify-center py-2">
+                <div className="absolute w-full border-t border-[#e3e8ee]"></div>
+                <span className="relative bg-white px-4 text-[12px] font-medium text-[#6B7C93]">or continue with</span>
+              </div>
 
-          <button 
-            onClick={handleGoogleLogin} 
-            disabled={loading}
-            className="w-full py-2.5 bg-white border border-[#e3e8ee] rounded-md text-[14px] font-medium text-[#0A2540] flex items-center justify-center gap-3 transition-colors hover:bg-[#f6f9fc] shadow-[0_1px_2px_rgba(0,0,0,0.02)] active:scale-[0.98] disabled:opacity-50"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5 pointer-events-none" />
-            Google
-          </button>
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                className="w-full py-2.5 bg-white border border-[#e3e8ee] rounded-md text-[14px] font-medium text-[#0A2540] flex items-center justify-center gap-3 transition-colors hover:bg-[#f6f9fc] shadow-[0_1px_2px_rgba(0,0,0,0.02)] active:scale-[0.98] disabled:opacity-50"
+              >
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5 pointer-events-none" />
+                Google
+              </button>
+            </>
+          )}
         </div>
 
         <p className="text-center mt-6 text-[14px] text-[#6B7C93]">

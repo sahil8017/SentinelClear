@@ -9,6 +9,10 @@ if [ -n "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ] && [ ! -f "${GOOGLE_APPLICATION_C
   echo "✅ Firebase Admin credentials written from FIREBASE_SERVICE_ACCOUNT_JSON"
 fi
 
+if [ -f frontend/scripts/write-firebase-config.sh ]; then
+  FIREBASE_DIST=frontend/dist sh frontend/scripts/write-firebase-config.sh
+fi
+
 echo "⏳ Running database migrations..."
 alembic upgrade head
 

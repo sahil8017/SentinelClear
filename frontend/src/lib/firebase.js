@@ -1,34 +1,42 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+let auth = null;
+let signInWithGoogle = async () => null;
+let firebaseEnabled = false;
+let _initPromise = null;
 
-if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID) {
-  firebaseConfig.measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID;
+function configFromEnv() {
+  const cfg = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  };
+  if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID) {
+    cfg.measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID;
+  }
+  const required = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+  if (required.some((k) => !cfg[k])) return null;
+  return cfg;
 }
 
-const requiredKeys = [
-  'apiKey',
-  'authDomain',
-  'projectId',
-  'storageBucket',
-  'messagingSenderId',
-  'appId',
-];
-const missingKeys = requiredKeys.filter((k) => !firebaseConfig[k]);
+async function loadRuntimeConfig() {
+  try {
+    const res = await fetch('/firebase-config.json', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const cfg = await res.json();
+    const required = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+    if (required.some((k) => !cfg[k])) return null;
+    return cfg;
+  } catch {
+    return null;
+  }
+}
 
-let auth = null;
-let signInWithGoogle = async () => null; // default no-op
-let firebaseEnabled = false;
-
-if (missingKeys.length === 0) {
+function enableFirebase(firebaseConfig) {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   const provider = new GoogleAuthProvider();
@@ -44,8 +52,20 @@ if (missingKeys.length === 0) {
     }
   };
   firebaseEnabled = true;
-} else {
-  console.warn('Missing Firebase configuration keys:', missingKeys, '- Firebase auth disabled.');
 }
 
+export async function initFirebase() {
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    const cfg = configFromEnv() || (await loadRuntimeConfig());
+    if (!cfg) {
+      console.warn('Firebase web auth not configured — use email/password sign-in.');
+      return;
+    }
+    enableFirebase(cfg);
+  })();
+  return _initPromise;
+}
+
+export const firebaseReady = initFirebase();
 export { auth, signInWithGoogle, firebaseEnabled };
