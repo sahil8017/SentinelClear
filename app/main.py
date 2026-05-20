@@ -318,7 +318,21 @@ async def trigger_reconciliation():
     return result
 
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 # Serve SPA last so /api/* and /health are not handled by StaticFiles (POST → 405).
 _frontend_dist = "frontend/dist"
+
+@app.exception_handler(StarletteHTTPException)
+async def spa_fallback(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404 and request.method == "GET" and not request.url.path.startswith("/api/"):
+        _index_path = os.path.join(_frontend_dist, "index.html")
+        if os.path.isfile(_index_path):
+            return FileResponse(_index_path)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
 if os.path.isdir(_frontend_dist):
     app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
