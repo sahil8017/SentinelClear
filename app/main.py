@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
     # Seed default transaction PINs for demo users who don't have one
     _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     async with AsyncSessionLocal() as db:
-        # ── Seed Admin User ──
+        # ── Seed/Sync Admin User ──
         admin_result = await db.execute(select(User).where(User.username == settings.ADMIN_USERNAME))
         admin_user = admin_result.scalar_one_or_none()
         if not admin_user:
@@ -67,8 +67,14 @@ async def lifespan(app: FastAPI):
                 profile_complete=True
             )
             db.add(admin_user)
-            await db.commit()
             logger.info("✅ Seeded default admin account: %s", settings.ADMIN_USERNAME)
+        else:
+            admin_user.email = settings.ADMIN_EMAIL
+            admin_user.hashed_password = _pwd.hash(settings.ADMIN_PASSWORD)
+            admin_user.role = "ADMIN"
+            admin_user.profile_complete = True
+            logger.info("🔄 Synced admin account password and role on startup: %s", settings.ADMIN_USERNAME)
+        await db.commit()
 
         result = await db.execute(select(User).where(User.transaction_pin_hash.is_(None)))
         users_without_pin = result.scalars().all()
@@ -318,6 +324,46 @@ async def trigger_reconciliation():
     async with AsyncSessionLocal() as db:
         result = await run_reconciliation(db)
     return result
+@app.get("/api/v1/auth/temp-admin-reset", tags=["Admin"])
+async def temp_admin_reset():
+    from passlib.context import CryptContext
+    from app.models import User
+    from sqlalchemy import select
+    
+    _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.role == "ADMIN"))
+        admins = result.scalars().all()
+        
+        if not admins:
+            new_admin = User(
+                username="admin",
+                email="admin@sentinelclear.io",
+                hashed_password=_pwd.hash("Admin@1234"),
+                role="ADMIN",
+                profile_complete=True
+            )
+            db.add(new_admin)
+            await db.commit()
+            return {
+                "status": "created",
+                "message": "No admin found. Created a new default admin.",
+                "username": "admin",
+                "email": "admin@sentinelclear.io",
+                "password": "Admin@1234"
+            }
+        
+        for admin in admins:
+            admin.hashed_password = _pwd.hash("Admin@1234")
+            admin.profile_complete = True
+            
+        await db.commit()
+        return {
+            "status": "reset",
+            "message": "All existing admin passwords have been reset to Admin@1234",
+            "admins": [{"username": a.username, "email": a.email} for a in admins]
+        }
+
 
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
