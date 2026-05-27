@@ -80,7 +80,17 @@ jobs:
           docker compose logs
           exit 1
       - name: Run Python tests
-        run: docker compose exec -T api-gateway python tests/test_everything.py
+        run: |
+          docker compose exec -T api-gateway python tests/test_everything.py
+          exit_code=$?
+          if [ $exit_code -ne 0 ]; then
+            echo "❌ Tests failed with exit code: $exit_code"
+            echo "--- API GATEWAY LOGS ---"
+            docker compose logs api-gateway
+            echo "--- ASYNC WORKER LOGS ---"
+            docker compose logs async-worker
+            exit $exit_code
+          fi
       - name: Cleanup
         if: always()
         run: docker compose down -v

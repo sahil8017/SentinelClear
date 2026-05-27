@@ -70,6 +70,7 @@ def test(name: str, condition: bool, detail: str = ""):
         failed += 1
         msg = f" — {detail}" if detail else ""
         print(f"  ❌ {name}{msg}")
+        print(f"     [!] DEBUG INFO for {name}: Condition was FALSE.")
 
 async def promote_bob_to_admin(username: str):
     # Default to localhost so the test works when run from the Windows host
@@ -445,7 +446,7 @@ def main():
     # Give the async worker time to process events (poll to reduce CI flakiness)
     notifications = []
     r = None
-    for _ in range(10):
+    for _ in range(20):
         r = client.get("/notifications", headers=alice_headers)
         if r.status_code == 200:
             notifications = r.json()
