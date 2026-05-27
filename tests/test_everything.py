@@ -297,9 +297,9 @@ def main():
         "receiver_account_id": bob_acct,
         "amount": 5000,
     }, headers={**alice_headers, "Idempotency-Key": idempotency_key})
-    test("Transfer ₹5,000 Alice→Bob → 201", r.status_code == 201)
-    test("Status is COMPLETED", r.json().get("status") == "COMPLETED")
-    test("risk_score is present", r.json().get("risk_score") is not None)
+    test("Transfer ₹5,000 Alice→Bob → 201", r.status_code == 201, detail=r.text)
+    test("Status is COMPLETED", r.json().get("status") == "COMPLETED", detail=r.text)
+    test("risk_score is present", r.json().get("risk_score") is not None, detail=r.text)
     completed_transfer_id = r.json().get("id", "")
 
     # Idempotency replay
