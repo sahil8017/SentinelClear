@@ -156,53 +156,6 @@ async def check_burst_velocity(
     )
 
 
-# ═══════════════════════════════════════════════════════════════════
-# RULE 3: Daily Volume — total outflow exceeds daily limit
-# ═══════════════════════════════════════════════════════════════════
-
-async def check_daily_volume(
-    db: AsyncSession,
-    sender_account_id: str,
-    amount: float,
-    daily_limit: float,
-    **kwargs,
-) -> RuleResult:
-    """Flag when cumulative daily outflow exceeds configured limit."""
-    amount = float(amount)
-    daily_limit = float(daily_limit)
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
-
-    result = await db.execute(
-        select(func.coalesce(func.sum(Transfer.amount), 0.0))
-        .where(
-            and_(
-                Transfer.sender_account_id == sender_account_id,
-                Transfer.sender_account_id != Transfer.receiver_account_id,
-                Transfer.created_at >= today_start,
-                Transfer.status == "COMPLETED",
-            )
-        )
-    )
-    today_total = float(result.scalar()) + amount  # include current transfer
-
-    if today_total <= daily_limit:
-        return RuleResult(
-            rule_name="daily_volume",
-            triggered=False,
-            score=round(today_total / daily_limit * 0.3, 4),
-            reason=f"Daily volume ₹{today_total:,.2f} within limit ₹{daily_limit:,.2f}",
-        )
-
-    # Strict scoring for daily volume limit breach (0.95+)
-    overshoot = min(today_total / daily_limit, 2.0)
-    score = round(0.95 + (overshoot - 1.0) * 0.05, 4)
-
-    return RuleResult(
-        rule_name="daily_volume",
-        triggered=True,
-        score=min(score, 1.0),
-        reason=f"Daily outflow ₹{today_total:,.2f} exceeds limit ₹{daily_limit:,.2f}",
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -285,52 +238,6 @@ async def check_time_of_day(
     )
 
 
-# ═══════════════════════════════════════════════════════════════════
-# RULE 6: Recipient Concentration — repeated transfers to same target
-# ═══════════════════════════════════════════════════════════════════
-
-async def check_recipient_concentration(
-    db: AsyncSession,
-    sender_account_id: str,
-    receiver_account_id: str,
-    max_transfers: int,
-    window_seconds: int,
-    **kwargs,
-) -> RuleResult:
-    """Flag repeated transfers to the same recipient — potential structuring."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=window_seconds)
-
-    result = await db.execute(
-        select(func.count(Transfer.id))
-        .where(
-            and_(
-                Transfer.sender_account_id == sender_account_id,
-                Transfer.receiver_account_id == receiver_account_id,
-                Transfer.created_at >= cutoff,
-                Transfer.status.in_(["COMPLETED", "FLAGGED"]),
-            )
-        )
-    )
-    count = result.scalar() or 0
-
-    if count < max_transfers:
-        return RuleResult(
-            rule_name="recipient_concentration",
-            triggered=False,
-            score=round(count / max_transfers * 0.2, 4),
-            reason=f"{count}/{max_transfers} transfers to same recipient in {window_seconds}s",
-        )
-
-    # Starting at 0.8 on trigger
-    overshoot = min(count / max_transfers, 3.0)
-    score = round(0.8 + (overshoot - 1.0) * 0.1, 4)
-
-    return RuleResult(
-        rule_name="recipient_concentration",
-        triggered=True,
-        score=min(score, 1.0),
-        reason=f"Sent {count} transfers to recipient {receiver_account_id} in {window_seconds}s (max {max_transfers})",
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -341,6 +248,7 @@ async def check_impossible_travel_rule(
     db: AsyncSession,
     sender_account_id: str,
     current_city: str,
+    speed_threshold: float = 800.0,
 ) -> RuleResult:
     """Flag transfers from physically impossible geographic locations."""
     if not current_city:
@@ -367,7 +275,8 @@ async def check_impossible_travel_rule(
     geo_res = check_impossible_travel(
         current_city=current_city,
         previous_city=last_transfer.source_city,
-        time_delta_seconds=time_delta
+        time_delta_seconds=time_delta,
+        speed_threshold=speed_threshold
     )
 
     if not geo_res["is_impossible"]:
@@ -375,12 +284,12 @@ async def check_impossible_travel_rule(
             rule_name="impossible_travel",
             triggered=False,
             score=0.0,
-            reason=f"Plausible travel: {geo_res['distance_km']}km in {geo_res['time_gap_minutes']} mins",
+            reason=f"Plausible travel: {geo_res['distance_km']}km in {geo_res['time_gap_minutes']} mins (req: {geo_res['required_speed_kmh']} km/h, max: {speed_threshold} km/h)",
         )
 
     return RuleResult(
         rule_name="impossible_travel",
         triggered=True,
         score=0.99,  # High confidence critical block
-        reason=f"Impossible Travel: {last_transfer.source_city} → {current_city} in {geo_res['time_gap_minutes']} mins (req: {geo_res['required_speed_kmh']} km/h, max: 1000 km/h)",
+        reason=f"Impossible Travel: {last_transfer.source_city} → {current_city} in {geo_res['time_gap_minutes']} mins (req: {geo_res['required_speed_kmh']} km/h, max: {speed_threshold} km/h)",
     )

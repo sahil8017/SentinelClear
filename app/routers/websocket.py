@@ -1,7 +1,10 @@
 import logging
+import json
+import asyncio
 from typing import List
 from urllib.parse import parse_qs
 
+import redis.asyncio as redis
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 
@@ -16,24 +19,90 @@ router = APIRouter(tags=["WebSocket"])
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.redis_client = None
+        self.pubsub = None
+        self.listener_task = None
 
     async def connect(self, websocket: WebSocket):
         # websocket is already accepted by the endpoint before this is called
         self.active_connections.append(websocket)
         logger.info(f"Client connected. Active clients: {len(self.active_connections)}")
+        
+        # Spawn pub/sub listener task if it is not already running
+        if self.listener_task is None or self.listener_task.done():
+            self.listener_task = asyncio.create_task(self._redis_pubsub_listener())
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
             logger.info(f"Client disconnected. Active clients: {len(self.active_connections)}")
 
-    async def broadcast(self, message: dict):
+    async def _local_broadcast(self, message: dict):
+        """Send message locally to all connections on this instance."""
         connections = list(self.active_connections)
         for connection in connections:
             try:
                 await connection.send_json(message)
             except Exception as e:
-                logger.error(f"Error broadcasting to client: {e}")
+                logger.error(f"Error broadcasting locally to client: {e}")
+
+    async def broadcast(self, message: dict):
+        """Publish the message to Redis Pub/Sub to broadcast across all replicas."""
+        try:
+            if self.redis_client is None:
+                self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+            
+            # Helper to convert non-JSON serializable values like Decimal or datetime
+            def json_serialize_clean(val):
+                from decimal import Decimal
+                from datetime import datetime, date
+                if isinstance(val, (Decimal, float)):
+                    return float(val)
+                if isinstance(val, (datetime, date)):
+                    return val.isoformat()
+                return str(val)
+
+            payload = json.dumps(message, default=json_serialize_clean)
+            await self.redis_client.publish("sentinelclear:fraud_alerts", payload)
+            logger.info("Published fraud alert to Redis Pub/Sub channel 'sentinelclear:fraud_alerts'")
+        except Exception as e:
+            logger.error(f"Failed to publish to Redis Pub/Sub: {e}. Falling back to local broadcast.")
+            await self._local_broadcast(message)
+
+    async def _redis_pubsub_listener(self):
+        """Background listener subscribing to Redis Pub/Sub and broadcasting received messages."""
+        logger.info("Starting Redis Pub/Sub WebSocket listener task...")
+        retry_delay = 1
+        while True:
+            try:
+                if self.redis_client is None:
+                    self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+                
+                self.pubsub = self.redis_client.pubsub()
+                await self.pubsub.subscribe("sentinelclear:fraud_alerts")
+                logger.info("Successfully subscribed to Redis channel 'sentinelclear:fraud_alerts'")
+                
+                retry_delay = 1 # Reset retry delay on successful subscription
+                
+                while True:
+                    try:
+                        msg = await self.pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                        if msg and msg.get("type") == "message":
+                            data = json.loads(msg["data"])
+                            await self._local_broadcast(data)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as inner_exc:
+                        logger.error(f"Error inside Redis Pub/Sub read loop: {inner_exc}")
+                        await asyncio.sleep(1)
+                        break # Break to trigger reconnect
+            except asyncio.CancelledError:
+                logger.info("Redis Pub/Sub listener task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Redis Pub/Sub connection error: {e}. Reconnecting in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 30)
 
 
 manager = ConnectionManager()

@@ -229,13 +229,33 @@ async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None
                 # Since body contains Decimal now, we need to convert it back for json payload
                 broadcast_body = body.copy()
                 broadcast_body["amount"] = float(broadcast_body["amount"])
+                gateway_url = os.getenv("API_GATEWAY_URL", "http://api-gateway:8000")
                 await http_client.post(
-                    "http://api-gateway:8000/internal/broadcast-fraud",
+                    f"{gateway_url}/internal/broadcast-fraud",
                     headers={"X-Admin-Token": settings.ADMIN_SECRET_KEY},
                     json=broadcast_body,
                 )
+                logger.info("Successfully broadcasted fraud alert via HTTP Gateway")
             except Exception as broad_exc:
-                logger.error(f"Failed to broadcast fraud alert: {broad_exc}")
+                logger.error(f"Failed to broadcast fraud alert via HTTP: {broad_exc}. Falling back to Redis Pub/Sub...")
+                try:
+                    if _redis_client:
+                        def json_serialize_clean(val):
+                            from decimal import Decimal
+                            from datetime import datetime, date
+                            if isinstance(val, (Decimal, float)):
+                                return float(val)
+                            if isinstance(val, (datetime, date)):
+                                return val.isoformat()
+                            return str(val)
+
+                        payload = json.dumps(broadcast_body, default=json_serialize_clean)
+                        await _redis_client.publish("sentinelclear:fraud_alerts", payload)
+                        logger.info("Successfully published fraud alert directly to Redis Pub/Sub channel")
+                    else:
+                        logger.error("Redis client is not available in worker for fallback broadcast")
+                except Exception as redis_pub_exc:
+                    logger.error(f"Direct Redis Pub/Sub broadcast fallback failed: {redis_pub_exc}")
                 
         logger.info(
             "Processing event: id=%s amount=%.2f status=%s",

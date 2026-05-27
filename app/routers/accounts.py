@@ -1,4 +1,4 @@
-"""Account router — create, deposit, balance (with Redis cache + snapshot fallback)."""
+"""Account router — create, balance (with Redis cache + snapshot fallback)."""
 
 from decimal import Decimal
 from typing import Optional
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, get_read_db
 from app.dependencies import get_current_user
 from app.models import Account, BalanceSnapshot, User
-from app.schemas import AccountCreate, AccountOut, BalanceOut, DepositRequest, DirectoryOut
+from app.schemas import AccountCreate, AccountOut, BalanceOut, DirectoryOut, AnnualLimitStatus
 from app.services import cache as redis_cache
 
 router = APIRouter(prefix="/accounts", tags=["Accounts"])
@@ -22,7 +22,7 @@ async def create_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new bank account for the authenticated user."""
-    account = Account(owner_id=user.id, account_type=body.account_type)
+    account = Account(owner_id=user.id, account_type=body.account_type, balance=Decimal("0.00"))
     db.add(account)
     await db.commit()
     await db.refresh(account)
@@ -132,106 +132,25 @@ async def get_balance(
     return BalanceOut(account_id=account.id, balance=account.balance)
 
 
-@router.post("/{account_id}/deposit", response_model=AccountOut)
-async def deposit(
-    account_id: str,
-    body: DepositRequest,
+@router.get("/annual-limit/status", response_model=AnnualLimitStatus)
+async def get_annual_limit_status(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Deposit money into an account (supports 'me' shortcut).
-
-    Creates a formal ledger CREDIT entry and audit trail so that
-    deposits are visible in reconciliation and PDF statements.
-    """
-    import uuid as _uuid
-    from app.models import Transfer, LedgerEntry
-    from app.services.audit import create_audit_entry
-
-    account = await resolve_account(account_id, user, db)
-    # Update balances: DEBIT Treasury (-), CREDIT User (+)
-    TREASURY_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
-    account.balance += body.amount
-    
-    # Update Treasury account if it exists, otherwise create it
-    res_treasury = await db.execute(select(Account).where(Account.id == TREASURY_ACCOUNT_ID))
-    treasury = res_treasury.scalar_one_or_none()
-    
-    if not treasury:
-        # We need a system owner for the treasury account. Let's find or create a system user.
-        res_system_user = await db.execute(select(User).where(User.username == "system"))
-        system_user = res_system_user.scalar_one_or_none()
-        if not system_user:
-            system_user = User(
-                username="system",
-                email="system@sentinelclear.local",
-                hashed_password="not_a_real_password",
-                role="ADMIN"
-            )
-            db.add(system_user)
-            await db.flush()
-            
-        treasury = Account(
-            id=TREASURY_ACCOUNT_ID,
-            owner_id=system_user.id,
-            account_type="treasury",
-            balance=Decimal("0.00")
-        )
-        db.add(treasury)
-        await db.flush()
-
-    treasury.balance -= body.amount
-    treasury_balance_after = treasury.balance
-
-    # Create synthetic Transfer record
-    deposit_transfer_id = str(_uuid.uuid4())
-    deposit_transfer = Transfer(
-        id=deposit_transfer_id,
-        sender_account_id=TREASURY_ACCOUNT_ID,
-        receiver_account_id=account.id,
-        amount=body.amount,
-        status="COMPLETED",
-        risk_score=0.0,
-        reference="Deposit",
+    """Check the annual receiving limit status for the primary account."""
+    account = await resolve_account("me", user, db)
+    limit = Decimal("2500000.00")
+    remaining = limit - account.annual_received
+    if remaining < 0:
+        remaining = Decimal("0.00")
+    return AnnualLimitStatus(
+        annual_received=account.annual_received,
+        is_frozen=account.is_frozen,
+        limit=limit,
+        remaining=remaining,
     )
-    db.add(deposit_transfer)
-    await db.flush()
 
-    # ── Double-Entry: DEBIT Treasury, CREDIT User ──
-    debit_entry = LedgerEntry(
-        transfer_id=deposit_transfer_id,
-        account_id=TREASURY_ACCOUNT_ID,
-        entry_type="DEBIT",
-        amount=body.amount,
-        balance_after=treasury_balance_after,
-    )
-    credit_entry = LedgerEntry(
-        transfer_id=deposit_transfer_id,
-        account_id=account.id,
-        entry_type="CREDIT",
-        amount=body.amount,
-        balance_after=account.balance,
-    )
-    db.add_all([debit_entry, credit_entry])
 
-    # SHA-256 hash-chained audit trail
-    try:
-        await create_audit_entry(db, deposit_transfer_id, "MANUAL_DEPOSIT", {
-            "account_id": account.id,
-            "user_id": user.id,
-            "amount": body.amount,
-            "balance_after": account.balance,
-        })
-    except Exception:
-        pass  # Audit is best-effort — don't block the deposit
-
-    await db.commit()
-    await db.refresh(account)
-
-    # Invalidate cache
-    await redis_cache.invalidate_balance(account.id)
-
-    return account
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -239,7 +158,7 @@ async def deposit(
 # ════════════════════════════════════════════════════════════════════════
 
 from passlib.context import CryptContext as _KSCrypt
-from app.schemas import KillSwitchToggle, KillSwitchResponse, AnnualLimitStatus
+from app.schemas import KillSwitchToggle, KillSwitchResponse
 from app.config import settings as _ks_settings
 from datetime import datetime as _ks_dt, timezone as _ks_tz
 
@@ -257,7 +176,7 @@ async def activate_kill_switch(
     phone is hacked or are in an emergency situation. No PIN required to activate.
     """
     user.kill_switch_active = True
-    user.kill_switch_activated_at = _ks_dt.now(_ks_tz.utc)
+    user.kill_switch_activated_at = _ks_dt.utcnow()
     await db.commit()
 
     return KillSwitchResponse(
@@ -325,29 +244,4 @@ async def get_kill_switch_status(
     )
 
 
-@router.get("/annual-limit/status", response_model=AnnualLimitStatus)
-async def get_annual_limit_status(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Check the annual receiving limit usage for the user's primary account."""
-    result = await db.execute(
-        select(Account)
-        .where(Account.owner_id == user.id)
-        .order_by(Account.created_at.asc())
-    )
-    account = result.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="No account found")
 
-    limit = _ks_settings.UPI_ANNUAL_RECEIVING_LIMIT
-    remaining = max(0.0, limit - account.annual_received)
-
-    return AnnualLimitStatus(
-        account_id=account.id,
-        annual_received=account.annual_received,
-        annual_limit=limit,
-        fiscal_year=account.annual_received_fy,
-        is_frozen=account.is_frozen,
-        remaining=remaining,
-    )

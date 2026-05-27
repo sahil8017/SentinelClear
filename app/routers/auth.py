@@ -29,7 +29,19 @@ def get_or_generate_rsa_keys():
     public_key_path = os.path.join(keys_dir, "jwt_public.pem")
     os.makedirs(keys_dir, exist_ok=True)
 
-    if not os.path.exists(private_key_path) or not os.path.exists(public_key_path):
+    private_key = None
+    if os.path.exists(private_key_path):
+        try:
+            with open(private_key_path, "rb") as f:
+                private_key = serialization.load_pem_private_key(
+                    f.read(),
+                    password=None,
+                    backend=default_backend()
+                )
+        except Exception:
+            pass
+
+    if not private_key:
         private_key = rsa.generate_private_key(
             public_exponent=65537, key_size=2048, backend=default_backend()
         )
@@ -39,11 +51,14 @@ def get_or_generate_rsa_keys():
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             ))
-        with open(public_key_path, "wb") as f:
-            f.write(private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
+
+    # Always derive the public key from the private key to guarantee they match perfectly!
+    public_key_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    with open(public_key_path, "wb") as f:
+        f.write(public_key_bytes)
 
     with open(private_key_path, "r") as f:
         priv_key = f.read()
@@ -123,15 +138,44 @@ async def register(
         username=body.username,
         email=body.email,
         hashed_password=pwd_context.hash(body.password),
+        occupation=body.occupation,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
-    # ── Auto-provision primary account ──
-    account = Account(owner_id=user.id, account_type="savings", balance=Decimal("0.00"))
+    # ── Auto-provision primary account with silent seeding ──
+    seed_balance = Decimal("0.00")
+    if body.occupation:
+        occupation_balance_map = {
+            "Software Engineer": Decimal("500000.00"),
+            "Corporate": Decimal("500000.00"),
+            "Business Owner": Decimal("1000000.00"),
+            "Student": Decimal("50000.00"),
+            "Other": Decimal("50000.00"),
+        }
+        seed_balance = occupation_balance_map.get(body.occupation, Decimal("50000.00"))
+
+    account = Account(owner_id=user.id, account_type="savings", balance=seed_balance)
     db.add(account)
     await db.commit()
+
+    if seed_balance > Decimal("0.00"):
+        from app.models import BalanceSnapshot
+        db.add(BalanceSnapshot(account_id=account.id, balance=seed_balance))
+        await db.commit()
+        
+        # Invalidate/set Redis cache for this account
+        try:
+            from app.services import cache as redis_cache
+            await redis_cache.set_cached_balance(account.id, seed_balance)
+        except Exception:
+            pass  # Redis failure is non-critical
+
+        logger.info(
+            "Seeded balance ₹%s for user_id=%s (occupation=%s) during registration",
+            seed_balance, user.id, body.occupation,
+        )
 
     return user
 
@@ -440,11 +484,65 @@ async def patch_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Partial profile update — only modifies provided fields."""
+    """Partial profile update — only modifies provided fields.
+
+    Includes silent occupation-based balance seeding on FIRST occupation
+    selection only. Subsequent occupation changes do NOT re-seed.
+    """
     from datetime import date as date_type
 
     if body.full_name is not None:
         user.full_name = body.full_name
+
+    # ── Silent occupation-based balance seeding (first-time only) ──
+    if body.occupation is not None and not user.occupation:
+        occupation_balance_map = {
+            "Software Engineer": Decimal("500000.00"),
+            "Corporate": Decimal("500000.00"),
+            "Business Owner": Decimal("1000000.00"),
+            "Student": Decimal("50000.00"),
+            "Other": Decimal("50000.00"),
+        }
+        seed_balance = occupation_balance_map.get(body.occupation, Decimal("50000.00"))
+
+        # Find or create the user's primary account
+        acct_result = await db.execute(
+            select(Account).where(Account.owner_id == user.id).order_by(Account.created_at.asc())
+        )
+        primary_account = acct_result.scalars().first()
+        if not primary_account:
+            primary_account = Account(
+                owner_id=user.id, account_type="savings", balance=seed_balance
+            )
+            db.add(primary_account)
+            await db.flush()
+        else:
+            primary_account.balance = seed_balance
+
+        # Upsert BalanceSnapshot
+        from app.models import BalanceSnapshot
+        snap_result = await db.execute(
+            select(BalanceSnapshot).where(BalanceSnapshot.account_id == primary_account.id)
+        )
+        snap = snap_result.scalar_one_or_none()
+        if snap:
+            snap.balance = seed_balance
+            snap.snapshot_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        else:
+            db.add(BalanceSnapshot(account_id=primary_account.id, balance=seed_balance))
+
+        # Invalidate Redis cache for this account
+        try:
+            from app.services import cache as redis_cache
+            await redis_cache.set_cached_balance(primary_account.id, seed_balance)
+        except Exception:
+            pass  # Redis failure is non-critical
+
+        logger.info(
+            "Seeded balance ₹%s for user_id=%s (occupation=%s)",
+            seed_balance, user.id, body.occupation,
+        )
+
     if body.occupation is not None:
         user.occupation = body.occupation
     if body.date_of_birth is not None:

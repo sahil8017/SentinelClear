@@ -376,6 +376,10 @@ class CreditProfile(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
 
+    pan = Column(String(10), nullable=True)
+    mobile_email = Column(String(120), nullable=True)
+    area_pin = Column(String(6), nullable=True)
+
     # ── Financial Indicators ──
     monthly_income = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))
     existing_liabilities = Column(Numeric(precision=18, scale=2), nullable=False, default=Decimal("0.00"))      # Total existing EMI/debt per month

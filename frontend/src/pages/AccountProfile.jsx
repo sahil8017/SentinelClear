@@ -5,6 +5,45 @@ import { formatINR } from '../lib/format';
 import { useMinLoadingTime } from '../lib/useMinLoadingTime';
 import { Skeleton } from '../components/ui/Skeleton';
 
+// ── Parse a rough device name from userAgent ──────────────────────────────────
+const parseDevice = (ua) => {
+  if (!ua) return { name: 'Unknown Device', browser: 'Unknown' };
+  let browser = 'Browser';
+  if (ua.includes('Chrome') && !ua.includes('Edg')) browser = 'Chrome';
+  else if (ua.includes('Firefox')) browser = 'Firefox';
+  else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+  else if (ua.includes('Edg')) browser = 'Edge';
+  let device = 'Desktop';
+  if (/Android|iPhone|iPad|Mobile/i.test(ua)) device = /iPad/i.test(ua) ? 'iPad' : 'Mobile';
+  return { name: `${device} · ${browser}`, browser };
+};
+
+const getBrowserIcon = (browser) => {
+  const icons = { Chrome: 'public', Firefox: 'public', Safari: 'public', Edge: 'public' };
+  return icons[browser] || 'computer';
+};
+
+// ── Register or refresh current device in localStorage ────────────────────────
+const registerCurrentDevice = () => {
+  try {
+    const devices = JSON.parse(localStorage.getItem('recognized_devices') || '[]');
+    const ua = navigator.userAgent;
+    const { name, browser } = parseDevice(ua);
+    const sessionId = btoa(ua).substring(0, 24); // stable ID for this UA
+    const now = new Date().toISOString();
+    const existing = devices.find(d => d.id === sessionId);
+    if (existing) {
+      existing.last_seen = now;
+      existing.is_current = true;
+    } else {
+      devices.forEach(d => { d.is_current = false; });
+      devices.unshift({ id: sessionId, name, browser, last_seen: now, is_current: true });
+    }
+    localStorage.setItem('recognized_devices', JSON.stringify(devices.slice(0, 10)));
+    return devices;
+  } catch { return []; }
+};
+
 export function AccountProfile() {
   const [account, setAccount] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -12,8 +51,15 @@ export function AccountProfile() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ full_name: '', occupation: '', date_of_birth: '' });
+  const [devices, setDevices] = useState([]);
 
   const showSkeleton = useMinLoadingTime(isLoading, 1200);
+
+  useEffect(() => {
+    // Register current device on mount
+    const registered = registerCurrentDevice();
+    setDevices(registered);
+  }, []);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -188,17 +234,17 @@ export function AccountProfile() {
           </div>
           {!editing ? (
             <button onClick={() => setEditing(true)}
-              className="px-5 py-2.5 bg-[#635BFF] hover:bg-[#5851db] text-white font-medium rounded-[8px] text-[13px] shadow-[0_2px_5px_rgba(99,91,255,0.3)] transition-all active:scale-95 flex items-center gap-2">
+              className="px-5 py-2.5 bg-[#635BFF] hover:bg-[#5851db] text-white font-medium rounded-[8px] text-[13px] shadow-[0_2px_5px_rgba(99,91,255,0.3)] transition-all active:scale-95 flex items-center gap-2 min-h-[44px]">
               <span className="material-symbols-outlined text-[16px]">edit</span> Edit Profile
             </button>
           ) : (
             <div className="flex gap-2">
               <button onClick={() => { setEditing(false); setForm({ full_name: profile?.full_name || '', occupation: profile?.occupation || '', date_of_birth: profile?.date_of_birth || '' }); }}
-                className="px-5 py-2.5 bg-white border border-[#e3e8ee] text-[#425466] font-medium rounded-[8px] text-[13px] hover:bg-[#f6f9fc] transition-all">
+                className="px-5 py-2.5 bg-white border border-[#e3e8ee] text-[#425466] font-medium rounded-[8px] text-[13px] hover:bg-[#f6f9fc] transition-all min-h-[44px]">
                 Cancel
               </button>
               <button onClick={handleSave} disabled={saving}
-                className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[13px] transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[13px] transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 min-h-[44px]">
                 {saving ? (<><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Saving...</>) : (<><span className="material-symbols-outlined text-[16px]">check</span> Save</>)}
               </button>
             </div>
@@ -211,6 +257,69 @@ export function AccountProfile() {
           <ProfileField label="Email Address" value={profile?.email} locked icon="lock" />
           <ProfileField label="Date of Birth" value={formatDate(profile?.date_of_birth)} editing={editing} inputValue={form.date_of_birth} onChange={v => setForm({ ...form, date_of_birth: v })} placeholder="YYYY-MM-DD" type="date" />
         </div>
+      </div>
+
+      {/* Recognized Devices */}
+      <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
+        <div className="flex items-start justify-between mb-6 border-b border-[#e3e8ee] pb-5">
+          <div>
+            <h3 className="text-[16px] font-medium text-[#0A2540]">Recognized Devices</h3>
+            <p className="text-[12px] text-[#6B7C93] mt-1">Browsers and devices where you’ve signed in recently.</p>
+          </div>
+          <span className="material-symbols-outlined text-[#6B7C93] text-[22px]">devices</span>
+        </div>
+
+        {devices.length === 0 ? (
+          <div className="py-8 flex flex-col items-center gap-3 text-center">
+            <div className="w-12 h-12 bg-[#f6f9fc] border border-[#e3e8ee] rounded-[10px] flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#6B7C93] text-[24px]">devices</span>
+            </div>
+            <div>
+              <p className="text-[13px] font-medium text-[#0A2540]">No other devices recognized</p>
+              <p className="text-[12px] text-[#6B7C93] mt-1">You’re only signed in here.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {devices.map((device, i) => (
+              <div key={device.id || i} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-[#f6f9fc] border border-[#e3e8ee] rounded-[10px] gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-[8px] flex items-center justify-center shrink-0 ${
+                    device.is_current ? 'bg-[#635BFF]/10 border border-[#635BFF]/20' : 'bg-white border border-[#e3e8ee]'
+                  }`}>
+                    <span className={`material-symbols-outlined text-[20px] ${device.is_current ? 'text-[#635BFF]' : 'text-[#6B7C93]'}`}>
+                      {getBrowserIcon(device.browser)}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-[14px] font-medium text-[#0A2540]">{device.name}</p>
+                      {device.is_current && (
+                        <span className="px-2 py-0.5 bg-[#635BFF]/10 text-[#635BFF] border border-[#635BFF]/20 rounded text-[9px] font-bold uppercase tracking-wider">CURRENT</span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-[#6B7C93] mt-0.5">
+                      Last seen: {device.last_seen ? new Date(device.last_seen).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Unknown'}
+                    </p>
+                  </div>
+                </div>
+                {!device.is_current && (
+                  <button
+                    onClick={() => {
+                      const updated = devices.filter(d => d.id !== device.id);
+                      localStorage.setItem('recognized_devices', JSON.stringify(updated));
+                      setDevices(updated);
+                      toast.success('Device removed');
+                    }}
+                    className="px-3 py-2 bg-white border border-[#e3e8ee] hover:border-[#ffcdcd] hover:bg-[#fff5f5] text-[#6B7C93] hover:text-[#df1b41] rounded-[6px] text-[12px] font-medium transition-all flex items-center gap-1.5 min-h-[36px] shrink-0"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">delete</span> Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -198,7 +198,7 @@ services:
       - ./frontend/dist:/usr/share/nginx/html:ro
     depends_on:
       api-gateway:
-        condition: service_started
+        condition: service_healthy
       grafana:
         condition: service_started
     restart: on-failure

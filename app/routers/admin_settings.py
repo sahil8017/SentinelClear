@@ -24,9 +24,7 @@ class SystemConfigUpdate(BaseModel):
 
 # Default settings map so the database gets seeded if missing
 DEFAULT_SYSTEM_SETTINGS = {
-    # UPI Safety Thresholds
-    "UPI_PAUSE_THRESHOLD": {"value": "10000", "type": "int", "description": "Amount threshold to trigger 15-minute pause (INR)"},
-    "UPI_ANNUAL_RECEIVING_LIMIT": {"value": "2500000", "type": "int", "description": "Annual incoming limit for accounts (INR)"},
+    # Vulnerable Group
     "VULNERABLE_AGE_THRESHOLD": {"value": "70", "type": "int", "description": "Age at which vulnerable group protections apply"},
     
     # Transfer Limits
@@ -73,6 +71,14 @@ async def get_all_settings(
     db: AsyncSession = Depends(get_db),
     admin_role: str = Depends(require_admin),
 ):
+    # Purge obsolete keys so they never re-appear in the UI
+    from sqlalchemy import delete
+    await db.execute(delete(SystemConfig).where(SystemConfig.key.in_([
+        "UPI_PAUSE_THRESHOLD",
+        "UPI_ANNUAL_RECEIVING_LIMIT",
+    ])))
+    await db.commit()
+
     # Ensure all defaults exist
     for key, opts in DEFAULT_SYSTEM_SETTINGS.items():
         res = await db.execute(select(SystemConfig).where(SystemConfig.key == key))

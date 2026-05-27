@@ -17,14 +17,20 @@ export function Transfer() {
   const [isScanning, setIsScanning] = useState(false);
   const [fraudBlock, setFraudBlock] = useState(null);
   const [stepUpChallenge, setStepUpChallenge] = useState(null);
-  const [pausedTransfer, setPausedTransfer] = useState(null);
   const [guardianPending, setGuardianPending] = useState(null);
-  const [confirmingPause, setConfirmingPause] = useState(false);
   // Whitelist
   const [whitelist, setWhitelist] = useState([]);
   const [wlAccountId, setWlAccountId] = useState('');
   const [wlNickname, setWlNickname] = useState('');
   const [showWhitelist, setShowWhitelist] = useState(false);
+  // Contact edit modal
+  const [editContact, setEditContact] = useState(null); // { id, contact_account_id, nickname }
+  const [editNickname, setEditNickname] = useState('');
+  const [editAccountId, setEditAccountId] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  // Large-transfer safety friction
+  const [pendingSafetyConfirm, setPendingSafetyConfirm] = useState(null); // payload waiting for confirmation
+  const LARGE_TRANSFER_THRESHOLD = 50000;
 
   const fetchWhitelist = useCallback(async () => {
     try {
@@ -43,6 +49,16 @@ export function Transfer() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.receiver || !formData.amount) return;
+    // Large-transfer safety friction
+    if (parseFloat(formData.amount) >= LARGE_TRANSFER_THRESHOLD && !pendingSafetyConfirm) {
+      setPendingSafetyConfirm({ ...formData });
+      return;
+    }
+    setPendingSafetyConfirm(null);
+    await executeTransfer();
+  };
+
+  const executeTransfer = async () => {
 
     setIsLoading(true);
     setIsScanning(true);
@@ -65,14 +81,7 @@ export function Transfer() {
 
       if (res.status === 202) {
         const data = res.data;
-        if (data.status === 'PAUSED') {
-          setPausedTransfer({
-            transferId: data.transfer_id,
-            cooldown: data.cooldown_seconds,
-            detail: data.detail,
-          });
-          toast.warning('Transaction Paused', { description: data.detail });
-        } else if (data.status === 'PENDING_GUARDIAN') {
+        if (data.status === 'PENDING_GUARDIAN') {
           setGuardianPending({
             transferId: data.transfer_id,
             message: data.message,
@@ -164,64 +173,84 @@ export function Transfer() {
 
   const dismissFraudBlock = () => setFraudBlock(null);
 
-  const handleConfirmPause = async () => {
-    if (!pausedTransfer) return;
-    setConfirmingPause(true);
-    try {
-      await apiClient.post(`/transfers/${pausedTransfer.transferId}/confirm-pause`);
-      toast.success('Paused transaction confirmed — Funds released!');
-      setPausedTransfer(null);
-      setFormData({ receiver: '', amount: '', reference: '', ip_override: '' });
-      apiClient.get('/accounts/me').then(r => setAccount(r.data)).catch(() => {});
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to confirm paused transaction');
-    } finally { setConfirmingPause(false); }
+  // ── Contact Edit Modal handlers ─────────────────────────────────────────
+  const openEditContact = (c) => {
+    setEditContact(c);
+    setEditNickname(c.nickname || '');
+    setEditAccountId(c.contact_account_id);
   };
 
-  const handleCancelPause = async () => {
-    if (!pausedTransfer) return;
+  const handleSaveContact = async () => {
+    if (!editContact) return;
+    setEditSaving(true);
     try {
-      await apiClient.post(`/transfers/${pausedTransfer.transferId}/cancel-pause`);
-      toast.success('Transaction cancelled — No funds were moved.');
-      setPausedTransfer(null);
+      // Delete old entry, re-create with new details
+      await apiClient.delete(`/whitelist/${editContact.id}`);
+      await apiClient.post('/whitelist', { contact_account_id: editAccountId, nickname: editNickname || null });
+      toast.success('Contact updated');
+      setEditContact(null);
+      fetchWhitelist();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to cancel');
+      toast.error(err.response?.data?.detail || 'Failed to update contact');
+    } finally {
+      setEditSaving(false);
     }
   };
 
+
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-      
-      {/* Paused Transfer Confirmation Modal */}
-      {pausedTransfer && (
+
+      {/* ── Large-Transfer Safety Friction Modal ── */}
+      {pendingSafetyConfirm && (
         <div className="fixed inset-0 bg-[#0A2540]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 max-w-md w-full shadow-[0_8px_30px_rgba(0,0,0,0.12)] space-y-6 zoom-in-95 duration-300">
+          <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 max-w-md w-full shadow-[0_8px_30px_rgba(0,0,0,0.12)] space-y-6">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded bg-[#ff6118]/10 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[#ff6118] text-2xl">pause_circle</span>
+                <span className="material-symbols-outlined text-[#ff6118] text-[24px]">payments</span>
               </div>
               <div>
-                <h3 className="text-[18px] font-semibold text-[#0A2540]">Transaction Paused</h3>
-                <p className="text-[12px] text-[#6B7C93] font-medium mt-0.5">UPI Safety Rule Triggered</p>
+                <h3 className="text-[18px] font-semibold text-[#0A2540]">Confirm Transfer</h3>
+                <p className="text-[12px] text-[#6B7C93] mt-0.5">Please review the details carefully before sending</p>
               </div>
             </div>
-            <p className="text-[14px] text-[#425466] leading-[1.6]">{pausedTransfer.detail}</p>
-            <div className="p-3 bg-[#fff5f2] border border-[#ffe0d4] rounded-[8px]">
-              <p className="text-[13px] text-[#ff6118] font-medium">⏱ Confirm or cancel within {Math.floor(pausedTransfer.cooldown / 60)} minutes.</p>
+            <div className="space-y-3">
+              <div className="flex justify-between items-start p-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded-[8px]">
+                <span className="text-[12px] text-[#6B7C93] font-medium">Recipient</span>
+                <span className="text-[12px] font-mono text-[#0A2540] text-right ml-4 break-all">
+                  {pendingSafetyConfirm.receiver.substring(0, 20)}…
+                </span>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded-[8px]">
+                <span className="text-[12px] text-[#6B7C93] font-medium">Amount</span>
+                <span className="text-[22px] font-light text-[#0A2540]">₹{parseFloat(pendingSafetyConfirm.amount).toLocaleString('en-IN')}</span>
+              </div>
+              {pendingSafetyConfirm.reference && (
+                <div className="flex justify-between items-center p-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded-[8px]">
+                  <span className="text-[12px] text-[#6B7C93] font-medium">Reference</span>
+                  <span className="text-[13px] text-[#0A2540]">{pendingSafetyConfirm.reference}</span>
+                </div>
+              )}
+            </div>
+            <div className="p-3 bg-[#fff5f2] border border-[#ffe0d4] rounded-[8px] flex items-start gap-2">
+              <span className="material-symbols-outlined text-[#ff6118] text-[16px] shrink-0">warning</span>
+              <p className="text-[12px] text-[#ff6118] font-medium">This transfer cannot be reversed once confirmed. Verify the recipient before proceeding.</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={handleCancelPause}
-                className="w-full py-2.5 bg-white border border-[#e3e8ee] text-[#425466] hover:bg-[#f6f9fc] rounded text-[14px] font-medium transition-colors">
-                Cancel Transfer
+              <button onClick={() => setPendingSafetyConfirm(null)}
+                className="flex-1 py-3 bg-white border border-[#e3e8ee] text-[#425466] hover:bg-[#f6f9fc] rounded-[8px] font-medium text-[14px] transition-colors min-h-[44px]">
+                Cancel
               </button>
-              <button onClick={handleConfirmPause} disabled={confirmingPause}
-                className="w-full py-2.5 bg-[#0A2540] hover:bg-[#112F4E] text-white rounded text-[14px] font-medium transition-colors disabled:opacity-50">
-                {confirmingPause ? 'Processing...' : 'Confirm & Send'}
+              <button onClick={() => executeTransfer()}
+                className="flex-1 py-3 bg-[#635BFF] hover:bg-[#5851db] text-white rounded-[8px] font-medium text-[14px] transition-colors shadow-[0_2px_5px_rgba(99,91,255,0.3)] min-h-[44px]">
+                Confirm &amp; Send
               </button>
             </div>
           </div>
         </div>
       )}
+
 
       {/* Guardian Pending Notification */}
       {guardianPending && (
@@ -417,10 +446,11 @@ export function Transfer() {
              {isScanning && <p className="text-[12px] text-[#635BFF] mt-2 animate-pulse font-medium">Computing risk metrics...</p>}
           </div>
 
+          {/* Address Book / Whitelist */}
           <div className="bg-white border border-[#e3e8ee] rounded-[16px] shadow-[0_2px_5px_rgba(0,0,0,0.02)] overflow-hidden">
             <button
               onClick={() => setShowWhitelist(!showWhitelist)}
-              className="w-full p-6 flex items-center justify-between hover:bg-[#f6f9fc] transition-all"
+              className="w-full p-6 flex items-center justify-between hover:bg-[#f6f9fc] transition-all min-h-[44px]"
             >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded bg-[#f6f9fc] border border-[#e3e8ee] flex items-center justify-center">
@@ -428,23 +458,22 @@ export function Transfer() {
                 </div>
                 <div className="text-left">
                   <h3 className="text-[16px] font-medium text-[#0A2540]">Address Book</h3>
-                  <p className="text-[13px] text-[#6B7C93] mt-0.5">{whitelist.length} saved beneficiaries</p>
+                  <p className="text-[13px] text-[#6B7C93] mt-0.5">{whitelist.length} saved beneficiaries · click any row to edit</p>
                 </div>
               </div>
-              <span className={`material-symbols-outlined text-[#6B7C93] transition-transform ${showWhitelist ? 'rotate-180' : ''}`}>
-                expand_more
-              </span>
+              <span className={`material-symbols-outlined text-[#6B7C93] transition-transform ${showWhitelist ? 'rotate-180' : ''}`}>expand_more</span>
             </button>
 
             {showWhitelist && (
-              <div className="px-6 pb-6 space-y-5 border-t border-[#e3e8ee] pt-5 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="px-6 pb-6 border-t border-[#e3e8ee] pt-5 animate-in fade-in slide-in-from-top-2 duration-200 space-y-4">
+                {/* Add new contact */}
                 <div className="flex flex-col sm:flex-row gap-3">
                   <input type="text" value={wlAccountId} onChange={e => setWlAccountId(e.target.value)}
                     placeholder="Account ID (UUID)"
-                    className="flex-1 bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-2.5 text-[14px] font-mono outline-none focus:border-[#635BFF] transition-all" />
+                    className="flex-1 bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-2.5 text-[14px] font-mono outline-none focus:border-[#635BFF] transition-all min-h-[44px]" />
                   <input type="text" value={wlNickname} onChange={e => setWlNickname(e.target.value)}
                     placeholder="Nickname"
-                    className="sm:w-32 bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-2.5 text-[14px] outline-none focus:border-[#635BFF] transition-all" />
+                    className="sm:w-32 bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-2.5 text-[14px] outline-none focus:border-[#635BFF] transition-all min-h-[44px]" />
                   <button onClick={async () => {
                     if (!wlAccountId.trim()) return;
                     try {
@@ -454,35 +483,41 @@ export function Transfer() {
                       fetchWhitelist();
                     } catch (err) { toast.error(err.response?.data?.detail || 'Failed to add'); }
                   }}
-                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[14px] transition-all whitespace-nowrap">
+                    className="px-5 py-2.5 bg-[#0A2540] hover:bg-[#112F4E] text-white font-medium rounded-[8px] text-[14px] transition-all whitespace-nowrap min-h-[44px]">
                     Add
                   </button>
                 </div>
 
+                {/* Contact List */}
                 {whitelist.length === 0 ? (
-                  <div className="p-6 text-center bg-[#f6f9fc] border border-[#e3e8ee] rounded-[8px]">
-                    <p className="text-[13px] text-[#6B7C93] font-medium">No saved beneficiaries</p>
+                  <div className="py-8 flex flex-col items-center gap-3 text-center bg-[#f6f9fc] border border-[#e3e8ee] rounded-[8px]">
+                    <span className="material-symbols-outlined text-[#6B7C93] text-[32px]">contacts</span>
+                    <div>
+                      <p className="text-[13px] font-medium text-[#0A2540]">No saved beneficiaries</p>
+                      <p className="text-[12px] text-[#6B7C93] mt-1">Add a contact above to enable quick transfers.</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="divide-y divide-[#e3e8ee] border border-[#e3e8ee] rounded-[8px] bg-white">
                     {whitelist.map(c => (
-                      <div key={c.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 group gap-3 text-left">
+                      <div
+                        key={c.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between p-4 group gap-3 cursor-pointer hover:bg-[#f6f9fc] transition-colors"
+                        onClick={() => openEditContact(c)}
+                        title="Click to edit this contact"
+                      >
                         <div className="flex flex-col min-w-0">
                           <p className="text-[14px] font-semibold text-[#0A2540] truncate">{c.nickname || 'Unnamed Contact'}</p>
                           <p className="text-[12px] font-mono text-[#6B7C93] mt-0.5 truncate">{c.contact_account_id}</p>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => setFormData({...formData, receiver: c.contact_account_id})}
-                            className="px-3 py-1.5 bg-[#f6f9fc] hover:bg-[#e3e8ee] text-[#0A2540] font-medium rounded-[6px] text-[12px] transition-all flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">edit_square</span> Fill
+                        <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => setFormData({...formData, receiver: c.contact_account_id})}
+                            className="px-3 py-1.5 bg-[#635BFF]/10 hover:bg-[#635BFF]/20 text-[#635BFF] font-semibold rounded-[6px] text-[12px] transition-all flex items-center gap-1 min-h-[36px]"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">arrow_forward</span> Use
                           </button>
-                          <button onClick={async () => {
-                            try { await apiClient.delete(`/whitelist/${c.id}`); toast.success('Removed'); fetchWhitelist(); }
-                            catch (e) { toast.error('Failed to remove'); }
-                          }}
-                            className="p-1.5 text-[#6B7C93] hover:bg-[#fff5f5] hover:text-[#df1b41] rounded-[6px] transition-all">
-                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                          </button>
+                          <span className="material-symbols-outlined text-[#6B7C93] text-[16px] opacity-0 group-hover:opacity-100 transition-opacity">edit</span>
                         </div>
                       </div>
                     ))}
@@ -491,6 +526,52 @@ export function Transfer() {
               </div>
             )}
           </div>
+
+          {/* ── Contact Edit Modal ── */}
+          {editContact && (
+            <div className="fixed inset-0 bg-[#0A2540]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 max-w-sm w-full shadow-[0_8px_30px_rgba(0,0,0,0.12)] space-y-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[16px] font-semibold text-[#0A2540]">Edit Contact</h3>
+                  <button onClick={() => setEditContact(null)} className="text-[#6B7C93] hover:text-[#0A2540] p-1">
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[12px] font-medium text-[#0A2540] block mb-1.5">Nickname</label>
+                    <input type="text" value={editNickname} onChange={e => setEditNickname(e.target.value)}
+                      placeholder="e.g. John Doe"
+                      className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] outline-none focus:border-[#635BFF] transition-all min-h-[44px]" />
+                  </div>
+                  <div>
+                    <label className="text-[12px] font-medium text-[#0A2540] block mb-1.5">Account ID</label>
+                    <input type="text" value={editAccountId} onChange={e => setEditAccountId(e.target.value)}
+                      className="w-full bg-[#f6f9fc] focus:bg-white border border-[#e3e8ee] rounded-[8px] px-4 py-3 text-[14px] font-mono outline-none focus:border-[#635BFF] transition-all min-h-[44px]" />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={async () => {
+                      try { await apiClient.delete(`/whitelist/${editContact.id}`); toast.success('Contact removed'); setEditContact(null); fetchWhitelist(); }
+                      catch { toast.error('Failed to remove'); }
+                    }}
+                    className="px-3 py-2.5 bg-white border border-[#ffcdcd] text-[#df1b41] hover:bg-[#fff5f5] rounded-[8px] font-medium text-[13px] transition-colors min-h-[44px]"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                  </button>
+                  <button onClick={() => setEditContact(null)}
+                    className="flex-1 py-2.5 bg-white border border-[#e3e8ee] text-[#425466] hover:bg-[#f6f9fc] rounded-[8px] font-medium text-[13px] transition-colors min-h-[44px]">
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveContact} disabled={editSaving || !editAccountId.trim()}
+                    className="flex-1 py-2.5 bg-[#635BFF] hover:bg-[#5851db] text-white rounded-[8px] font-medium text-[13px] transition-colors disabled:opacity-50 min-h-[44px]">
+                    {editSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </section>
       </div>

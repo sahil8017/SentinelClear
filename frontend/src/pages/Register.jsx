@@ -54,6 +54,10 @@ export function Register() {
           </div>
           <h1 className="text-2xl font-light text-[#0A2540] tracking-tight mb-2">Create your account</h1>
           <p className="text-[14px] text-[#6B7C93] font-medium">Join the SentinelClear transaction network.</p>
+          <Link to="/" className="inline-flex items-center gap-1 mt-3 text-[13px] text-[#635BFF] font-medium hover:text-[#5851db] transition-colors group">
+            <span className="material-symbols-outlined text-[16px] group-hover:-translate-x-0.5 transition-transform">arrow_back</span>
+            Back to Home
+          </Link>
         </div>
 
         <div className="bg-white border border-[#e3e8ee] rounded-xl p-6 sm:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.04)] space-y-6">

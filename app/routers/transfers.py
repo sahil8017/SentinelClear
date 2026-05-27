@@ -29,10 +29,7 @@ from app.services.rate_limit import transfer_limiter
 from app.services.webhook_service import dispatch_webhook
 from app.services.upi_safety import (
     check_kill_switch,
-    check_annual_receiving_limit,
-    check_transaction_pause,
     check_vulnerable_group,
-    update_annual_received,
 )
 from app.config import settings
 from app.services.event_bus import publish_event as kafka_publish
@@ -141,24 +138,7 @@ async def create_transfer(
             headers={"X-Block-Reason": "EMERGENCY_KILL_SWITCH"},
         )
 
-    # ══════════════════════════════════════════════════════════════
-    # STEP 1B: UPI SAFETY — Annual Receiving Limit
-    # ══════════════════════════════════════════════════════════════
-    receiver_acct_result = await db.execute(
-        select(Account).where(Account.id == body.receiver_account_id)
-    )
-    receiver_acct_for_limit = receiver_acct_result.scalar_one_or_none()
-    if not receiver_acct_for_limit:
-        raise HTTPException(status_code=404, detail="Receiver account not found")
 
-    annual_result = await check_annual_receiving_limit(db, receiver_acct_for_limit, body.amount)
-    if annual_result["blocked"]:
-        await db.commit()  # Persist the frozen state
-        raise HTTPException(
-            status_code=403,
-            detail=annual_result["detail"],
-            headers={"X-Block-Reason": annual_result["reason"]},
-        )
 
     # ══════════════════════════════════════════════════════════════
     # STEP 1: RBI/NPCI FRAUD SCORING — Multi-Layered Risk Engine
@@ -335,17 +315,11 @@ async def create_transfer(
             # No guardian configured — hard block
             raise HTTPException(status_code=403, detail=vulnerable_result["detail"])
 
-        # ── UPI Safety: Transaction Pause (Rule 1) ──
-        pause_result = await check_transaction_pause(db, user, body.receiver_account_id, body.amount)
-        needs_pause = pause_result.get("pause", False)
-
         status_val = "COMPLETED"
         if needs_approval:
             status_val = "PENDING_APPROVAL"
         elif needs_guardian:
             status_val = "PENDING_GUARDIAN"
-        elif needs_pause:
-            status_val = "PAUSED"
         elif needs_step_up:
             status_val = "PENDING_AUTH"
 
@@ -415,20 +389,6 @@ async def create_transfer(
                 },
             )
 
-        if needs_pause:
-            # UPI Safety Rule 1: Pause for user confirmation
-            await db.commit()
-            await db.refresh(transfer)
-            return JSONResponse(
-                status_code=202,
-                content={
-                    "detail": pause_result["detail"],
-                    "transfer_id": transfer.id,
-                    "status": "PAUSED",
-                    "cooldown_seconds": pause_result["cooldown_seconds"],
-                    "message": "Confirm or cancel this transaction within the cooldown period.",
-                },
-            )
 
         if needs_step_up:
             # DO NOT adjust balances yet. Defer until Step-Up Auth is complete.
@@ -443,8 +403,7 @@ async def create_transfer(
         sender.balance -= body.amount
         receiver.balance += body.amount
 
-        # ── UPI Safety: Update annual receiving tally ──
-        await update_annual_received(receiver, body.amount)
+
 
         # ══════════════════════════════════════════════════════════════
         # STEP 4: DOUBLE-ENTRY LEDGER — DEBIT sender, CREDIT receiver
@@ -779,8 +738,7 @@ async def _execute_deferred_transfer(db: AsyncSession, transfer: Transfer) -> Tr
     sender.balance -= transfer.amount
     receiver.balance += transfer.amount
 
-    # Update annual receiving tally
-    await update_annual_received(receiver, transfer.amount)
+
 
     transfer.status = "COMPLETED"
 
@@ -809,90 +767,6 @@ async def _execute_deferred_transfer(db: AsyncSession, transfer: Transfer) -> Tr
 
     return transfer
 
-
-@router.post("/{transfer_id}/confirm-pause", response_model=TransferOut)
-async def confirm_paused_transfer(
-    transfer_id: str,
-    user: User = Depends(get_user_or_api_key),
-    db: AsyncSession = Depends(get_db),
-):
-    """Confirm a PAUSED transfer to execute it.
-
-    UPI Safety Rule 1: After the ₹10K pause, the user explicitly
-    confirms they want to proceed with the transaction.
-    """
-    result = await db.execute(select(Transfer).where(Transfer.id == transfer_id))
-    transfer = result.scalar_one_or_none()
-
-    if not transfer:
-        raise HTTPException(status_code=404, detail="Transfer not found")
-    if transfer.status != "PAUSED":
-        raise HTTPException(status_code=400, detail=f"Transfer is '{transfer.status}', not PAUSED")
-
-    # Verify sender ownership
-    acct_result = await db.execute(select(Account.id).where(Account.owner_id == user.id))
-    user_acct_ids = [row[0] for row in acct_result.fetchall()]
-    if transfer.sender_account_id not in user_acct_ids:
-        raise HTTPException(status_code=403, detail="You are not the sender of this transfer")
-
-    try:
-        transfer = await _execute_deferred_transfer(db, transfer)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Confirmation settlement failed: {str(exc)}")
-
-    try:
-        await create_audit_entry(db, transfer.id, "PAUSE_CONFIRMED", {
-            "sender": transfer.sender_account_id,
-            "receiver": transfer.receiver_account_id,
-            "amount": transfer.amount,
-        })
-        await db.commit()
-    except Exception:
-        pass
-
-    return transfer
-
-
-@router.post("/{transfer_id}/cancel-pause", response_model=TransferOut)
-async def cancel_paused_transfer(
-    transfer_id: str,
-    user: User = Depends(get_user_or_api_key),
-    db: AsyncSession = Depends(get_db),
-):
-    """Cancel a PAUSED transfer — no funds are moved.
-
-    UPI Safety Rule 1: The user decides the transaction is not legitimate.
-    """
-    result = await db.execute(select(Transfer).where(Transfer.id == transfer_id))
-    transfer = result.scalar_one_or_none()
-
-    if not transfer:
-        raise HTTPException(status_code=404, detail="Transfer not found")
-    if transfer.status != "PAUSED":
-        raise HTTPException(status_code=400, detail=f"Transfer is '{transfer.status}', not PAUSED")
-
-    acct_result = await db.execute(select(Account.id).where(Account.owner_id == user.id))
-    user_acct_ids = [row[0] for row in acct_result.fetchall()]
-    if transfer.sender_account_id not in user_acct_ids:
-        raise HTTPException(status_code=403, detail="You are not the sender of this transfer")
-
-    transfer.status = "FAILED"
-    await db.commit()
-    await db.refresh(transfer)
-
-    try:
-        await create_audit_entry(db, transfer.id, "PAUSE_CANCELLED", {
-            "sender": transfer.sender_account_id,
-            "amount": transfer.amount,
-        })
-        await db.commit()
-    except Exception:
-        pass
-
-    return transfer
 
 
 # ════════════════════════════════════════════════════════════════════════

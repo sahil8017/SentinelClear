@@ -14,8 +14,7 @@ const getNavForRole = (role) => {
       { name: 'Security Analytics', href: '/admin/analytics', icon: 'shield_locked' },
       { name: 'Chaos Simulator', href: '/admin/chaos', icon: 'warning' },
       { name: 'AML Intelligence', href: '/admin/aml-graph', icon: 'account_tree' },
-      { name: 'EOD Cryptographic Audit', href: '/admin/audit', icon: 'enhanced_encryption' },
-      { name: 'Developer Tools', href: '/admin/tools', icon: 'terminal' },
+      { name: 'Change Log', href: '/admin/changelog', icon: 'history' },
       ...common
     ];
   }

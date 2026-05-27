@@ -14,6 +14,7 @@ class UserRegister(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., max_length=120)
     password: str = Field(..., min_length=6)
+    occupation: Optional[str] = Field(default=None, description="Optional occupation for silent seeding")
 
 
 class UserLogin(BaseModel):
@@ -58,6 +59,13 @@ class AccountOut(BaseModel):
         from_attributes = True
 
 
+class AnnualLimitStatus(BaseModel):
+    annual_received: Decimal
+    is_frozen: bool
+    limit: Decimal
+    remaining: Decimal
+
+
 class BalanceOut(BaseModel):
     account_id: str
     balance: Decimal
@@ -67,10 +75,6 @@ class DirectoryOut(BaseModel):
     username: str
     account_id: str
     account_type: str
-
-
-class DepositRequest(BaseModel):
-    amount: Decimal = Field(..., gt=0)
 
 
 # ────────────────────────────── Transfer ──────────────────────────────
@@ -336,19 +340,17 @@ class LoanRepaymentRequest(BaseModel):
 
 class CreditProfileCreate(BaseModel):
     """User-provided financial indicators for credit assessment."""
-    monthly_income: Decimal = Field(..., gt=0, description="Gross monthly income in INR")
-    existing_liabilities: Decimal = Field(default=0.0, ge=0, description="Existing monthly EMI/debt obligations")
-    total_assets: Decimal = Field(default=0.0, ge=0, description="Total value of savings, investments, property")
-    employment_type: str = Field(default="salaried", description="salaried, self_employed, freelancer, unemployed")
-    employment_years: float = Field(default=0.0, ge=0, description="Years of employment / business tenure")
-    age: int = Field(default=25, ge=18, le=80, description="Age of the applicant")
-    dependents: int = Field(default=0, ge=0, le=15, description="Number of financial dependents")
-    residence_type: str = Field(default="rented", description="owned, rented, parental")
+    pan: str = Field(..., min_length=10, max_length=10, description="10-digit PAN Number")
+    mobile_email: str = Field(..., description="Mobile number or Email ID")
+    area_pin: str = Field(..., min_length=6, max_length=6, description="6-digit Area PIN")
 
 
 class CreditProfileOut(BaseModel):
     """Full credit profile returned by the API."""
     user_id: int
+    pan: Optional[str] = None
+    mobile_email: Optional[str] = None
+    area_pin: Optional[str] = None
     monthly_income: Decimal
     existing_liabilities: Decimal
     total_assets: Decimal
@@ -476,10 +478,3 @@ class GuardianPendingResponse(BaseModel):
     message: str = "Your trusted person must approve this transaction."
 
 
-class AnnualLimitStatus(BaseModel):
-    account_id: str
-    annual_received: Decimal
-    annual_limit: Decimal
-    fiscal_year: Optional[str] = None
-    is_frozen: bool
-    remaining: Decimal

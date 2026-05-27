@@ -100,6 +100,7 @@ def check_impossible_travel(
     current_city: str,
     previous_city: str,
     time_delta_seconds: float,
+    speed_threshold: float = 800.0,
 ) -> dict:
     """Check if travel between two cities is physically impossible.
     
@@ -123,7 +124,7 @@ def check_impossible_travel(
             "reason": "unknown_location",
             "distance_km": 0.0,
             "required_speed_kmh": 0.0,
-            "max_allowed_kmh": MAX_TRAVEL_SPEED_KMH,
+            "max_allowed_kmh": speed_threshold,
             "current_city": current_city,
             "previous_city": previous_city,
             "time_gap_minutes": 0.0,
@@ -135,7 +136,7 @@ def check_impossible_travel(
             "reason": "same_city",
             "distance_km": 0.0,
             "required_speed_kmh": 0.0,
-            "max_allowed_kmh": MAX_TRAVEL_SPEED_KMH,
+            "max_allowed_kmh": speed_threshold,
             "current_city": current_city,
             "previous_city": previous_city,
             "time_gap_minutes": round(time_delta_seconds / 60.0, 1),
@@ -150,19 +151,19 @@ def check_impossible_travel(
     required_speed = distance_km / time_hours
     time_gap_minutes = round(time_delta_seconds / 60.0, 1)
 
-    is_impossible = required_speed > MAX_TRAVEL_SPEED_KMH
+    is_impossible = required_speed > speed_threshold
 
     if is_impossible:
         logger.warning(
-            "IMPOSSIBLE TRAVEL DETECTED: %s → %s (%.0f km in %.1f min = %.0f km/h)",
-            previous_city, current_city, distance_km, time_gap_minutes, required_speed,
+            "IMPOSSIBLE TRAVEL DETECTED: %s → %s (%.0f km in %.1f min = %.0f km/h) [max permitted: %.0f km/h]",
+            previous_city, current_city, distance_km, time_gap_minutes, required_speed, speed_threshold,
         )
 
     return {
         "is_impossible": is_impossible,
         "distance_km": round(distance_km, 1),
         "required_speed_kmh": round(required_speed, 0),
-        "max_allowed_kmh": MAX_TRAVEL_SPEED_KMH,
+        "max_allowed_kmh": speed_threshold,
         "current_city": current_city,
         "previous_city": previous_city,
         "time_gap_minutes": time_gap_minutes,

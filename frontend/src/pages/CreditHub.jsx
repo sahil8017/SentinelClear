@@ -3,6 +3,16 @@ import apiClient from '../lib/axios';
 import { useMinLoadingTime } from '../lib/useMinLoadingTime';
 import { Skeleton } from '../components/ui/Skeleton';
 
+function maskSensitiveIdentity(val) {
+  if (!val) return val;
+  const str = String(val);
+  const aadhaarRegex = /\b\d{12}\b|\b\d{4}-\d{4}-\d{4}\b|\b\d{4} \d{4} \d{4}\b/;
+  if (aadhaarRegex.test(str)) {
+    return str.replace(aadhaarRegex, '[Aadhaar Redacted]');
+  }
+  return val;
+}
+
 /* ─── Horizontal Credit Score Progress Bar ─── */
 function CreditScoreBar({ score }) {
   const min = 300, max = 900;
@@ -134,12 +144,12 @@ export function CreditHub() {
 
   /* Credit Profile */
   const [profile, setProfile] = useState(null);
-  const [profileForm, setProfileForm] = useState({
-    monthly_income: '', existing_liabilities: '', total_assets: '',
-    employment_type: 'salaried', employment_years: '', age: '',
-    dependents: '0', residence_type: 'rented',
-  });
   const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  /* 3-field lookup form */
+  const [lookupForm, setLookupForm] = useState({ pan: '', contact: '', pin: '' });
+  const [lookupError, setLookupError] = useState(null);
 
   /* Assessment */
   const [assessment, setAssessment] = useState(null);
@@ -148,18 +158,6 @@ export function CreditHub() {
   const [activeTab, setActiveTab] = useState('profile');
 
   const showSkeleton = useMinLoadingTime(isLoading, 1200);
-
-  /* ─── DSCR Calculation ─── */
-  const dscr = useMemo(() => {
-    const income = parseFloat(profileForm.monthly_income) || 0;
-    const emis = parseFloat(profileForm.existing_liabilities) || 0;
-    if (emis <= 0) return null; // DSCR is undefined when no EMIs
-    return income / emis;
-  }, [profileForm.monthly_income, profileForm.existing_liabilities]);
-
-  /* ─── Age Validation ─── */
-  const age = parseInt(profileForm.age) || 0;
-  const ageBlocked = age > 0 && (age < 21 || age > 65);
 
   const fetchLoans = async () => {
     try {
@@ -186,28 +184,37 @@ export function CreditHub() {
     init();
   }, []);
 
-  const handleProfileSubmit = async (e) => {
+  // 3-field lookup: identity-confirmation UI — actual score computed by backend from account data
+  const handleLookupSubmit = async (e) => {
     e.preventDefault();
-    if (ageBlocked) return;
+    setLookupError(null);
+    if (!lookupForm.pan.trim() || !lookupForm.contact.trim() || !lookupForm.pin.trim()) {
+      setLookupError('All fields are required to verify your identity.');
+      return;
+    }
     setProfileSubmitting(true);
     try {
-      const payload = {
-        monthly_income: parseFloat(profileForm.monthly_income),
-        existing_liabilities: parseFloat(profileForm.existing_liabilities) || 0,
-        total_assets: parseFloat(profileForm.total_assets) || 0,
-        employment_type: profileForm.employment_type,
-        employment_years: parseFloat(profileForm.employment_years) || 0,
-        age: parseInt(profileForm.age),
-        dependents: parseInt(profileForm.dependents) || 0,
-        residence_type: profileForm.residence_type,
-      };
-      await apiClient.post('/loans/credit-profile', payload);
-      await fetchProfile();
-    } catch (error) {
-      alert(error.response?.data?.detail || 'Failed to save profile');
+      const { data } = await apiClient.get('/loans/credit-profile');
+      setProfile(data);
+    } catch (e) {
+      if (e.response?.status === 404) {
+        setLookupError('No credit profile found. Your score will be computed once you have transaction history.');
+      } else {
+        setLookupError('Failed to fetch credit profile. Please try again.');
+      }
     } finally {
       setProfileSubmitting(false);
     }
+  };
+
+  // Derive KYC status pill from profile data
+  const getKycStatus = (p) => {
+    if (!p) return null;
+    if (p.kyc_status === 'PAN_VERIFIED' || (p.credit_score && p.credit_score > 0))
+      return { label: 'VERIFIED', color: '#0CBF4C', bg: '#e7f9ed', border: '#0CBF4C/20' };
+    if (p.credit_score === 0)
+      return { label: 'PROCESSING', color: '#ff6118', bg: '#fff5f2', border: '#ffe0d4' };
+    return { label: 'AWAITING KYC', color: '#df1b41', bg: '#fff5f5', border: '#ffcdcd' };
   };
 
   const handleCheckEligibility = async () => {
@@ -302,162 +309,115 @@ export function CreditHub() {
       {/* ─── TAB: Credit Profile ─── */}
       {activeTab === 'profile' && (
         <div className="space-y-6">
-          {/* Credit Score Bar + Stats (if profile exists) */}
+          {/* Credit Score Bar + Status Pill (if profile exists) */}
           {profile && (
             <section className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
-              <div className="space-y-6">
-                <CreditScoreBar score={profile.credit_score} />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 w-full">
-                  <Stat label="Monthly Income" value={`₹${profile.monthly_income.toLocaleString()}`} />
+              {/* Score + Pill header */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-[11px] uppercase font-bold tracking-widest text-[#6B7C93] mb-2">Credit Score</p>
+                  <CreditScoreBar score={profile.credit_score} />
+                </div>
+                {(() => {
+                  const status = getKycStatus(profile);
+                  return status ? (
+                    <div className="shrink-0 flex flex-col items-start sm:items-end gap-1">
+                      <p className="text-[11px] uppercase font-bold tracking-widest text-[#6B7C93]">KYC Status</p>
+                      <span style={{ backgroundColor: status.bg, color: status.color, border: `1px solid ${status.color}30` }}
+                        className="px-3 py-1.5 rounded-[6px] text-[12px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
+                        {status.label}
+                      </span>
+                      <p className="text-[11px] text-[#6B7C93] mt-1 max-w-[180px] text-right hidden sm:block">Score computed automatically from your transaction history and KYC data.</p>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* Progressive Disclosure */}
+              <button
+                onClick={() => setShowDetails(!showDetails)}
+                className="flex items-center gap-2 text-[13px] font-medium text-[#635BFF] hover:text-[#5851db] transition-colors mt-2"
+              >
+                <span className="material-symbols-outlined text-[16px]">{showDetails ? 'expand_less' : 'expand_more'}</span>
+                {showDetails ? 'Hide Analysis' : 'View Full Analysis'}
+              </button>
+
+              {showDetails && (
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4 w-full animate-in fade-in slide-in-from-top-2 duration-200">
+                  {profile.monthly_income !== undefined && <Stat label="Monthly Income" value={`₹${profile.monthly_income.toLocaleString()}`} />}
                   <Stat label="FOIR" value={`${(profile.foir * 100).toFixed(1)}%`} sub={profile.foir > 0.5 ? 'Above RBI limit' : 'Within norms'} />
                   <Stat label="Debt-to-Income" value={`${(profile.debt_to_income * 100).toFixed(1)}%`} />
                   <Stat label="Repayment Hit" value={`${(profile.repayment_history_score * 100).toFixed(0)}%`} />
                   <Stat label="Account Age" value={`${profile.account_age_months} mo`} />
                   <Stat label="Past Loans" value={profile.num_previous_loans} sub={profile.num_defaults > 0 ? `${profile.num_defaults} defaults` : '0 defaults'} />
                 </div>
-              </div>
+              )}
             </section>
           )}
 
-          {/* Profile Form */}
+          {/* 3-field Identity Lookup */}
           <section className="bg-[linear-gradient(180deg,#fafbfc_0%,#f6f9fc_100%)] border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
-            <h2 className="text-[20px] font-medium text-[#0A2540] mb-1">{profile ? 'Update Financial Profile' : 'Submit Financial Profile'}</h2>
-            <p className="text-[#6B7C93] text-[13px] mb-6">Required for credit assessment as per KYC norms.</p>
-            <form onSubmit={handleProfileSubmit} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Monthly Income (₹) *</label>
-                  <input type="number" required value={profileForm.monthly_income} onChange={e => setProfileForm(p => ({...p, monthly_income: e.target.value}))}
-                    placeholder="55000" className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm" />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Existing EMIs (₹)</label>
-                  <input type="number" value={profileForm.existing_liabilities} onChange={e => setProfileForm(p => ({...p, existing_liabilities: e.target.value}))}
-                    placeholder="0" className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm" />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Total Assets (₹)</label>
-                  <input type="number" value={profileForm.total_assets} onChange={e => setProfileForm(p => ({...p, total_assets: e.target.value}))}
-                    placeholder="500000" className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm" />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Age *</label>
-                  <input type="number" required min="18" max="80" value={profileForm.age} onChange={e => setProfileForm(p => ({...p, age: e.target.value}))}
-                    placeholder="28" className={`w-full px-4 py-2.5 bg-white border rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm ${ageBlocked ? 'border-[#df1b41]' : 'border-[#e3e8ee]'}`} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Employment Type</label>
-                  <select value={profileForm.employment_type} onChange={e => setProfileForm(p => ({...p, employment_type: e.target.value}))}
-                    className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] text-[14px] focus:border-[#635BFF] transition-colors shadow-sm">
-                    <option value="salaried">Salaried</option>
-                    <option value="self_employed">Self-Employed</option>
-                    <option value="freelancer">Freelancer</option>
-                    <option value="unemployed">Unemployed</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Employment Yrs</label>
-                  <input type="number" step="0.5" value={profileForm.employment_years} onChange={e => setProfileForm(p => ({...p, employment_years: e.target.value}))}
-                    placeholder="5" className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm" />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Dependents</label>
-                  <input type="number" min="0" max="15" value={profileForm.dependents} onChange={e => setProfileForm(p => ({...p, dependents: e.target.value}))}
-                    placeholder="0" className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm" />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Residence</label>
-                  <select value={profileForm.residence_type} onChange={e => setProfileForm(p => ({...p, residence_type: e.target.value}))}
-                    className="w-full px-4 py-2.5 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] text-[14px] focus:border-[#635BFF] transition-colors shadow-sm">
-                    <option value="rented">Rented</option>
-                    <option value="owned">Owned</option>
-                    <option value="parental">Parental</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* ── Age Regulatory Block ── */}
-              {ageBlocked && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '12px 16px',
-                  backgroundColor: '#fff5f5', border: '1px solid #ffcdcd', borderRadius: '10px',
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#df1b41' }}>block</span>
-                  <span style={{ fontSize: '13px', color: '#df1b41', fontWeight: 600 }}>
-                    Regulatory Block: Applicant age must be between 21 and 65 years for credit eligibility.
-                  </span>
-                </div>
-              )}
-
-              {/* ── DSCR Warning ── */}
-              {dscr !== null && dscr < 1.25 && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '12px 16px',
-                  backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px',
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#d97706' }}>warning</span>
-                  <span style={{ fontSize: '13px', color: '#92400e', fontWeight: 500 }}>
-                    DSCR is {dscr.toFixed(2)}x — below the 1.25x regulatory minimum. Loan approval may be impacted.
-                  </span>
-                </div>
-              )}
-
-              {/* ── DSCR Info (when healthy) ── */}
-              {dscr !== null && dscr >= 1.25 && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '10px 16px',
-                  backgroundColor: '#e7f9ed', border: '1px solid #bef5cb', borderRadius: '10px',
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#0CBF4C' }}>check_circle</span>
-                  <span style={{ fontSize: '13px', color: '#0a6c2e', fontWeight: 500 }}>
-                    DSCR: {dscr.toFixed(2)}x — meets the 1.25x regulatory minimum.
-                  </span>
-                </div>
-              )}
-
-              <button type="submit" disabled={profileSubmitting || !profileForm.monthly_income || !profileForm.age || ageBlocked}
-                className="px-6 py-2.5 bg-[#635BFF] hover:bg-[#5851db] text-white font-medium text-[14px] rounded-[8px] transition-all disabled:opacity-50 shadow-[0_2px_5px_rgba(99,91,255,0.3)]">
-                {profileSubmitting ? 'Saving...' : profile ? 'Update Profile' : 'Save Profile'}
-              </button>
-            </form>
-          </section>
-
-          {/* ── KYC Document Checklist ── */}
-          <section className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 md:p-8 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '22px', color: '#635BFF' }}>fact_check</span>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#0A2540', margin: 0 }}>KYC Document Requirements</h3>
-            </div>
-            <p style={{ fontSize: '13px', color: '#6B7C93', marginBottom: '16px' }}>
-              The following documents are required for credit underwriting as per RBI Fair Practices Code.
+            <h2 className="text-[20px] font-medium text-[#0A2540] mb-1">{profile ? 'Refresh Credit Score' : 'Fetch Your Credit Score'}</h2>
+            <p className="text-[#6B7C93] text-[13px] mb-2">Verify your identity to retrieve your bureau-computed score.</p>
+            <p className="text-[12px] text-[#425466] mb-6 p-3 bg-white border border-[#e3e8ee] rounded-[8px] flex items-start gap-2">
+              <span className="material-symbols-outlined text-[#635BFF] text-[16px] shrink-0">info</span>
+              Your credit score is computed automatically from your transaction history, KYC status, and account data — no manual entry required.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {[
-                { doc: 'Latest 2 Years Income Tax Returns (ITR)', icon: 'description' },
-                { doc: '6-Months Bank Statements (Primary Account)', icon: 'account_balance' },
-                { doc: 'PAN Card (Mandatory for loans > ₹50,000)', icon: 'badge' },
-                { doc: 'Address Proof (Aadhaar / Utility Bill)', icon: 'home' },
-              ].map((item, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '12px 16px',
-                  backgroundColor: '#f6f9fc', border: '1px solid #e3e8ee', borderRadius: '8px',
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#6B7C93' }}>{item.icon}</span>
-                  <span style={{ fontSize: '13px', color: '#425466', fontWeight: 500 }}>{item.doc}</span>
-                  <span style={{
-                    marginLeft: 'auto',
-                    fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px',
-                    color: '#6B7C93', backgroundColor: '#e3e8ee', padding: '2px 8px', borderRadius: '4px',
-                  }}>Required</span>
+
+            <form onSubmit={handleLookupSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">PAN Number *</label>
+                  <input
+                    type="text" required maxLength={10}
+                    value={lookupForm.pan}
+                    onChange={e => setLookupForm(p => ({ ...p, pan: e.target.value.toUpperCase() }))}
+                    placeholder="ABCDE1234F"
+                    className="w-full px-4 py-3 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm min-h-[44px]"
+                  />
                 </div>
-              ))}
-            </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Mobile / Email *</label>
+                  <input
+                    type="text" required
+                    value={lookupForm.contact}
+                    onChange={e => setLookupForm(p => ({ ...p, contact: e.target.value }))}
+                    placeholder="9876543210 or you@email.com"
+                    className="w-full px-4 py-3 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] text-[14px] focus:border-[#635BFF] transition-colors shadow-sm min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-[#0A2540] mb-1.5">Transaction PIN *</label>
+                  <input
+                    type="password" required maxLength={6}
+                    value={lookupForm.pin}
+                    onChange={e => setLookupForm(p => ({ ...p, pin: e.target.value }))}
+                    placeholder="••••••"
+                    className="w-full px-4 py-3 bg-white border border-[#e3e8ee] rounded-[8px] outline-none text-[#0A2540] font-mono text-[14px] focus:border-[#635BFF] transition-colors shadow-sm min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              {lookupError && (
+                <div className="p-3 bg-[#fff5f5] border border-[#ffcdcd] rounded-[8px] flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[#df1b41] text-[16px] shrink-0">error</span>
+                  <p className="text-[13px] text-[#df1b41] font-medium">{lookupError}</p>
+                </div>
+              )}
+
+              <div className="flex flex-col items-start gap-2">
+                <button type="submit" disabled={profileSubmitting}
+                  className="px-8 py-3 bg-[#635BFF] hover:bg-[#5851db] text-white font-medium text-[14px] rounded-[8px] transition-all disabled:opacity-50 shadow-[0_2px_5px_rgba(99,91,255,0.3)] flex items-center gap-2 min-h-[44px]">
+                  {profileSubmitting
+                    ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Fetching Score...</>
+                    : <><span className="material-symbols-outlined text-[18px]">search</span> Fetch Score</>}
+                </button>
+                <p className="text-[12px] text-[#6B7C93] font-medium mt-1">
+                  Bureau Query Fee: ₹35.00 (Deducted from pre-seeded balance)
+                </p>
+              </div>
+            </form>
           </section>
         </div>
       )}
@@ -547,8 +507,8 @@ export function CreditHub() {
                           <div key={i} className="flex items-start gap-3 p-3 bg-[#f6f9fc] rounded-[8px] border border-[#e3e8ee]">
                             <ImpactBadge impact={exp.impact} />
                             <div className="flex-1">
-                              <div className="font-medium text-[13px] text-[#0A2540]">{exp.factor}</div>
-                              <div className="text-[12px] text-[#6B7C93] mt-0.5">{exp.detail}</div>
+                              <div className="font-medium text-[13px] text-[#0A2540]">{maskSensitiveIdentity(exp.factor)}</div>
+                              <div className="text-[12px] text-[#6B7C93] mt-0.5">{maskSensitiveIdentity(exp.detail)}</div>
                             </div>
                           </div>
                         ))}
@@ -564,7 +524,7 @@ export function CreditHub() {
                         {assessment.rbi_remarks.map((r, i) => (
                           <li key={i} className="flex items-start gap-2 text-[13px] text-[#425466]">
                             <span className="text-[#ff6118] font-bold">●</span>
-                            {r}
+                            {maskSensitiveIdentity(r)}
                           </li>
                         ))}
                       </ul>

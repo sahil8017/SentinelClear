@@ -58,11 +58,11 @@ jobs:
         run: |
           mkdir -p frontend/dist
           echo '{"type":"service_account","project_id":"ci-placeholder"}' > service-account.json
-- name: Clean up any existing containers
-  run: docker compose down -v 2>/dev/null || true
-- name: Start services
-  run: |
-    docker compose up -d --build postgres-db rabbitmq redis neo3j api-gateway async-worker nginx
+      - name: Clean up any existing containers
+        run: docker compose down -v 2>/dev/null || true
+      - name: Start services
+        run: |
+          docker compose up -d --build postgres-db rabbitmq redis neo4j api-gateway async-worker nginx
       - name: Wait for API health
         run: |
           echo "Waiting for API health..."

@@ -14,10 +14,9 @@ import { Ledger } from './pages/Ledger';
 import { FraudAnalytics } from './pages/FraudAnalytics';
 import { OpsDashboard } from './pages/OpsDashboard';
 import { ChaosPanel } from './pages/ChaosPanel';
-import { DevTools } from './pages/DevTools';
 import { AMLGraph } from './pages/AMLGraph';
 import { MakerChecker } from './pages/MakerChecker';
-import { AuditLedger } from './pages/AuditLedger';
+import { ChangeLog } from './pages/ChangeLog';
 
 import { CreditHub } from './pages/CreditHub';
 import { UPISafety } from './pages/UPISafety';
@@ -71,10 +70,9 @@ export default function App() {
             <Route path="analytics" element={<FraudAnalytics />} />
             <Route path="ops" element={<OpsDashboard />} />
             <Route path="chaos" element={<ChaosPanel />} />
-            <Route path="tools" element={<DevTools />} />
             <Route path="maker-checker" element={<MakerChecker />} />
             <Route path="aml-graph" element={<AMLGraph />} />
-            <Route path="audit" element={<AuditLedger />} />
+            <Route path="changelog" element={<ChangeLog />} />
           </Route>
         </Route>
 

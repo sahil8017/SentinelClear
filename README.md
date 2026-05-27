@@ -12,7 +12,7 @@ app_port: 7860
 
 # SentinelClear
 
-### Enterprise AML & Ledger Infrastructure
+### Real-Time Transaction Protection & Account-Drain Prevention
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat-square&logo=fastapi&logoColor=white)
@@ -24,371 +24,140 @@ app_port: 7860
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Build](https://img.shields.io/github/actions/workflow/status/sahil8017/SentinelClear/ci.yml?branch=main&style=flat-square&logo=github-actions&logoColor=white&label=CI/CD)
 
-**A production-grade ACID-compliant double-entry ledger system with an advanced heuristic risk engine,
-Neo4j-powered AML graph topology analysis, and full Indian regulatory compliance (RBI/NPCI/FIU).**
-
-Built for financial institutions that demand cryptographic audit integrity, real-time fraud interception,
-and enterprise-grade transaction orchestration — from the first rupee to the last basis point.
+SentinelClear is a full-stack banking protection system that monitors every outgoing transfer in real time, flags anomalous patterns before money leaves the account, and gives users instant control over their funds through an emergency kill switch, guardian approvals, and automated credit scoring — all backed by an immutable double-entry ledger.
 
 ---
 
 </div>
 
-## System Architecture
+## How It Works
 
-```mermaid
-graph TB
-    subgraph Client Layer
-        A[React SPA<br/>Stripe Light-Mode UI]
-    end
-
-    subgraph Edge
-        B[Nginx Reverse Proxy<br/>Static Assets + WS Upgrade]
-    end
-
-    subgraph API Gateway
-        C["FastAPI Gateway<br/>Uvicorn ASGI (3x Replicas)"]
-    end
-
-    subgraph Compute
-        D[Fraud Engine<br/>Heuristic & Regulatory Scoring]
-        E[Lending Engine<br/>ML Credit Scoring]
-        F[UPI Safety Module<br/>RBI/NPCI Compliance]
-    end
-
-    subgraph Data Plane
-        G[(PostgreSQL 16<br/>Double-Entry Ledger)]
-        H[(Redis 7<br/>Cache + Rate Limiting)]
-        I[(Neo4j 5<br/>AML Graph Topology)]
-        J[RabbitMQ<br/>Event Bus + DLQ]
-    end
-
-    subgraph Async Worker
-        K["Consumer Process<br/>Notifications + Ingestion (2x Replicas)"]
-    end
-
-    subgraph Observability & Tracing
-        L[Prometheus + Grafana<br/>Metrics Dashboard]
-        M[OpenTelemetry Collector<br/>+ Grafana Tempo Tracing]
-    end
-
-    A -->|HTTPS| B
-    B -->|Proxy Pass| C
-    B -->|WebSocket| C
-    C --> D
-    C --> E
-    C --> F
-    C -->|Async Sessions| G
-    C -->|Balance Cache| H
-    C -->|Graph Queries| I
-    C -->|Publish Events| J
-    J -->|Consume| K
-    K -->|Write| G
-    K -->|Ingest| I
-    C -->|Instrument| L
-    C -->|Trace| M
-    K -->|Trace| M
-
-    style A fill:#6366f1,stroke:#4f46e5,color:#fff
-    style B fill:#0f172a,stroke:#334155,color:#fff
-    style C fill:#059669,stroke:#047857,color:#fff
-    style G fill:#4169E1,stroke:#3457b5,color:#fff
-    style H fill:#DC382D,stroke:#b52d24,color:#fff
-    style I fill:#4581C3,stroke:#3a6ea5,color:#fff
-    style J fill:#FF6600,stroke:#cc5200,color:#fff
-    style K fill:#7c3aed,stroke:#6d28d9,color:#fff
-    style L fill:#f59e0b,stroke:#d97706,color:#000
-    style M fill:#ec4899,stroke:#db2777,color:#fff
-```
+A user signs up and immediately receives an automated sandbox test balance. From that point, every transfer they make passes through a layered risk engine that scores the transaction against five tunable detection rules. High-risk transfers are blocked or held for review. Administrators monitor incidents via a live WebSocket feed and can adjust risk parameters without redeploying. The system also provides automated credit scoring and loan underwriting — no manual financial data entry required.
 
 ---
 
-## Core Features
-
-### 🔐 Cryptographic Double-Entry Ledger
-
-- **ACID-compliant** atomic fund transfers with `SELECT ... FOR UPDATE` row-level locking.
-- **Deterministic deadlock prevention** via ascending UUID lock ordering across all account pairs.
-- **SHA-256 hash-chained audit trail** — every ledger mutation is cryptographically linked to its predecessor, creating a tamper-evident chain verifiable at any point.
-- **Automated reconciliation engine** — scheduled balance verification recomputes every account from raw ledger entries and flags sub-paisa discrepancies.
-- **PDF statement generation** — bank-grade ReportLab statements with running balances, summary cards, and audit chain hash footer.
-
-### 🧠 Layered Risk Engine
-
-| Strategy | Mechanism | Coverage |
-|----------|-----------|----------|
-| **Regulatory Blocks** | Indian Banking Mandates | PAN Mandate (§114B), RTGS floor (₹2L), UPI daily cap (₹1L), NPCI velocity (20 txn/day), Beneficiary cooling-off |
-| **Heuristic Detection** | Real-time Behavioral Analysis | Split-structuring (smurfing), account drain prediction, burst velocity, time-of-day analysis, recipient concentration, impossible travel detection |
-
-- Real-time composite risk score `[0.0, 1.0]` with configurable review (`≥0.4`) and block (`≥0.7`) thresholds.
-- **Impossible Travel Detection** — Haversine geospatial velocity analysis flags transactions from physically impossible locations (e.g., Mumbai → Delhi in 2 minutes).
-- **Automated FIU STR Generation** — Suspicious Transaction Reports auto-generated as PDF payloads for Financial Intelligence Unit filing.
-
-### 🕸️ Neo4j AML Graph Topology
-
-- **Native Cypher traversal** for circular trading detection (`A→B→C→…→A` loops up to depth 6).
-- **Connected-component clustering** to identify coordinated fraud rings.
-- **Force-directed React Flow visualization** — live network graph with risk-colored nodes, animated flagged edges, and transaction volume labels.
-- **Transfer event ingestion** via async worker — every completed transaction creates `Account` nodes and `TRANSFERRED` edges in real-time.
-
-### 🏦 Credit Hub & Maker-Checker
-
-- **ML-powered credit scoring** — Random Forest model evaluating income stability, FOIR, account age, and transaction history to produce CIBIL-equivalent scores.
-- **RBI-aligned DSCR underwriting** with `VERY_HIGH` / `HIGH` / `MODERATE` / `LOW` risk categories.
-- **Four Eyes Principle** — high-value corporate transfers (`≥₹10L`) require cryptographic separation of duties: the initiator cannot be the approver.
-- **Atomic loan disbursement & repayment** — Treasury → User double-entry with hash-chained audit trail.
-
-### 🛡️ UPI Safety Framework (RBI/NPCI Mandated)
-
-| Rule | Trigger | Action |
-|------|---------|--------|
-| **Transaction Pause** | P2P transfer > ₹10,000 to non-whitelisted recipient | 5-minute confirmation window with explicit user consent |
-| **Vulnerable Group Protection** | User age ≥70 or disabled, amount > ₹50,000 | Requires designated guardian (trusted person) approval |
-| **Emergency Kill Switch** | User-activated panic button | Instant freeze of ALL outgoing payments — requires PIN to deactivate |
-| **Annual Receiving Limit** | Inbound credits exceed ₹25,00,000 in a fiscal year | Account frozen pending bank verification |
+Test balances are automatically provisioned upon registration so users can execute sandbox transactions immediately.
 
 ---
 
-## Tech Stack
+## Unified Risk Engine
+
+All fraud detection parameters and banking limits live in a single **System Configuration** panel on the Operations Matrix dashboard. Administrators tune each rule using a **0×–3× weight slider** that controls how much that rule contributes to the composite risk score of a transaction.
+
+### Detection Rules
+
+| Rule | Default Weight | Threshold | What It Does |
+| :--- | :---: | :---: | :--- |
+| **Amount Threshold** | 1.0× | ₹50,000 | Flags transfers that are uncharacteristically large relative to account history |
+| **Burst Velocity** | 2.0× | 10 txns | Detects rapid, machine-like transfer bursts — stops automated script attacks |
+| **New Account Penalty** | 1.3× | ₹10,000 | Applies extra risk to newly registered accounts making early large transfers |
+| **Time of Day (Midnight Guard)** | 0.8× | 1 AM–5 AM | Multiplies risk for transactions executed during high-risk sleeping hours |
+| **Velocity Spike** | 1.5× | — | Monitors abnormal activity spikes compared to the user's historical baseline |
+
+A transaction's composite score is computed from all enabled rules. If it crosses **0.4**, the transfer is held for review. If it crosses **0.8**, it is blocked outright. Both thresholds are configurable. Every parameter change is logged to an immutable admin changelog with timestamps and the operator's identity.
+
+### Banking Limits (System Settings)
+
+These are separate hard caps enforced alongside the heuristic rules:
+- **Maker-Checker Threshold** — Transfers above this amount require independent admin approval (Four Eyes Principle)
+- **Daily Velocity Limit** — Maximum number of transfers per account per day
+- **Vulnerable Age Threshold** — Age cutoff (default 70) for guardian-approval requirements
+
+---
+
+## Automated Credit Hub
+
+The Credit Hub computes a CIBIL-parity credit score (300–900) without requiring the user to manually enter income, assets, or employment data.
+
+### How It Works
+
+1. The user submits a 3-field identity payload: **PAN Number**, **Mobile/Email**, and **Transaction PIN**.
+2. The backend uses the authenticated user's session to pull their actual financial state:
+   - **Occupation tier** → base income, assets, and liability estimates
+   - **Ledger transaction history** → total credits received, adjusted monthly income
+   - **Account balances** → total asset calculation
+   - **Active loans** → real-time liability computation
+   - **Past loan performance** → repayment score and default count
+3. These inputs feed into the ML scoring function, which outputs a credit score, FOIR, DTI, and risk category.
+4. A **₹35.00 bureau query fee** is noted as deducted from the pre-seeded balance per pull.
+
+The computed profile is saved to the database. Subsequent fetches return the cached profile and recalculate if the user's financial state has changed. Loan eligibility checks and applications use the same dynamic profile — the system auto-creates one if it doesn't exist.
+
+---
+
+## UPI Safety Controls
+
+Three protective mechanisms that give users direct control over their funds:
+
+- **Non-Whitelisted Pause** — Transfers above ₹10,000 to accounts not on the user's whitelist are held for a cooling-off period before execution.
+- **Guardian Protection** — Users aged ≥70 or with accessibility needs can designate a trusted person. Transfers above ₹50,000 require the guardian's approval.
+- **Emergency Kill Switch** — A single-tap panic button that instantly freezes all outgoing payments. No PIN required to activate. PIN required to deactivate (prevents an attacker from re-enabling payments on a compromised device).
+
+---
+
+## AML Graph Analytics
+
+Transaction relationships are mirrored into Neo4j as a directed graph. The system runs Cypher traversal queries to detect:
+- **Circular money flows** — Chains like A → B → C → A up to depth 6
+- **Coordinated fraud rings** — Connected-component analysis across clustered accounts
+
+The frontend renders this graph interactively, with accounts as nodes and transfers as risk-weighted edges.
+
+---
+
+## Technical Stack
 
 ### Backend
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **API Framework** | FastAPI 0.115 + Uvicorn | Async ASGI gateway with OpenAPI docs |
-| **Primary Database** | PostgreSQL 16 + AsyncPG | Double-entry ledger, accounts, audit logs |
-| **Graph Database** | Neo4j 5 | AML network topology & circular trading detection |
-| **Cache & Rate Limiting** | Redis 7 + Hiredis | Balance caching, sliding-window rate limiter |
-| **Message Broker** | RabbitMQ 3.13 | Durable event bus with DLQ and retry backoff |
-| **Authentication** | JWT (HS256) + Firebase SSO | Dual auth: native credentials + Google/GitHub SSO |
-| **ML Pipeline** | scikit-learn + pandas | Random Forest credit scoring |
-| **PDF Engine** | ReportLab | Bank-grade statements & FIU STR reports |
-| **Monitoring** | Prometheus + Grafana | Real-time metrics, dashboards, alerting |
-| **Distributed Tracing** | OpenTelemetry + Grafana Tempo | Distributed request tracing & bottleneck analysis |
-| **Reverse Proxy** | Nginx | TLS termination, static assets, WebSocket upgrade |
+| Component | Technology |
+| :--- | :--- |
+| API Gateway | FastAPI 0.115, Uvicorn ASGI |
+| Primary Database | PostgreSQL 16, Alembic migrations |
+| Graph Engine | Neo4j 5 |
+| Cache & Rate Limiting | Redis 7 |
+| Event Bus | RabbitMQ 3.13 |
+| ML Runtime | Scikit-learn, Pandas |
 
 ### Frontend
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **Framework** | React 18 + Vite | SPA with lazy-loaded routes |
-| **Styling** | Tailwind CSS | Stripe-inspired light-mode design system |
-| **Charts** | Recharts | Operations dashboard visualizations |
-| **Graph Viz** | React Flow | Interactive AML network topology |
-| **Auth** | Firebase Auth SDK | Google/GitHub SSO popup flow |
-| **HTTP Client** | Axios | Interceptor-based JWT management |
+| Component | Technology |
+| :--- | :--- |
+| Framework | React 18, Vite |
+| Styling | Vanilla CSS, Stripe-inspired design system |
+| Visualizations | Recharts (telemetry), React Flow (graph) |
 
-### Infrastructure & Cloud Services
+### Deployment
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **Hosting & Deployment** | [Hugging Face Spaces](https://huggingface.co/spaces) | Docker-based cloud deployment (SDK: Docker, port 7860) |
-| **PostgreSQL (Cloud)** | [Neon](https://console.neon.tech/) | Serverless Postgres for production database |
-| **Redis (Cloud)** | [Upstash](https://console.upstash.com/) | Serverless Redis for cache & rate limiting |
-| **Neo4j (Cloud)** | [Neo4j Aura](https://console.neo4j.io/) | Managed graph database for AML topology |
-| **RabbitMQ (Cloud)** | [CloudAMQP](https://api.cloudamqp.com/) | Managed RabbitMQ message broker |
-| **Containerization** | Docker + Docker Compose | Full-stack orchestration (11 services) |
-| **Migrations** | Alembic | Schema version control |
-| **Scheduling** | APScheduler | Automated reconciliation jobs |
-| **Chaos Engineering** | Docker SDK | Controlled failure injection (kill-db, kill-worker) |
-| **CI/CD** | GitHub Actions | Automated linting, security scans, E2E testing, image publish |
+| Target | Provider |
+| :--- | :--- |
+| Application | Docker multi-stage → Hugging Face Spaces (port 7860) |
+| Database | Neon Serverless PostgreSQL |
+| Graph DB | Neo4j Aura |
+| Redis | Upstash Serverless |
+| Message Queue | CloudAMQP |
 
 ---
 
-## Cloud Services
-
-SentinelClear leverages managed cloud services for production deployment, eliminating the need to self-host stateful infrastructure:
-
-| Service | Provider | Console URL | Purpose |
-|---------|----------|-------------|---------|
-| **Application Hosting** | Hugging Face Spaces | [huggingface.co/spaces](https://huggingface.co/spaces) | Docker container hosting with GPU support, secrets management, and persistent storage |
-| **PostgreSQL** | Neon | [console.neon.tech](https://console.neon.tech/) | Serverless Postgres with branching, autoscaling, and connection pooling |
-| **Redis** | Upstash | [console.upstash.com](https://console.upstash.com/) | Serverless Redis with per-request pricing, TLS, and REST API |
-| **Neo4j** | Neo4j Aura | [console.neo4j.io](https://console.neo4j.io/) | Fully managed graph database with automatic backups and scaling |
-| **RabbitMQ** | CloudAMQP | [api.cloudamqp.com](https://api.cloudamqp.com/) | Managed RabbitMQ clusters with monitoring, DLQ, and automatic failover |
-
-### Environment Variables (Cloud)
-
-When deploying to Hugging Face Spaces, configure these as **Space Secrets**:
-
-```env
-# Neon PostgreSQL
-DATABASE_URL=postgresql+asyncpg://<user>:<pass>@<host>.neon.tech/<db>?sslmode=require
-
-# CloudAMQP RabbitMQ
-RABBITMQ_URL=amqps://<user>:<pass>@<host>.cloudamqp.com/<vhost>
-
-# Upstash Redis
-REDIS_URL=rediss://default:<pass>@<host>.upstash.io:6379
-
-# Neo4j Aura
-NEO4J_URI=neo4j+s://<id>.databases.neo4j.io
-NEO4J_USER=neo4j
-NEO4J_PASS=<password>
-
-# App Security
-JWT_SECRET_KEY=<secure-random-key>
-ADMIN_SECRET_KEY=<secure-random-admin-key>
-
-# Firebase (optional — for Google/GitHub SSO)
-FIREBASE_SERVICE_ACCOUNT_JSON=<json-string>
-```
-
----
-
-## Recent Updates (Stabilization & Parity)
-
-- **CI/CD Pipeline Integration**: Added GitHub Actions workflow to automate linting (Ruff/Mypy), security checks (Bandit/Trivy), full E2E Docker Compose test validation, and image publish tasks.
-- **Docker Image Tag Compliance**: Standardized Docker registry tag casing by downcasing the repository name in the publication workflow to adhere to OCI registry specifications.
-- **Deployment Automation**: Added production deployment blueprints (`docker-compose.prod.yml`, `nginx/nginx.prod.conf`) and a shell installer (`scripts/deploy.sh`) supporting automated Certbot SSL provisioning.
-- **Database & Graph DB Concurrency Fixes**: Resolved index validation and concurrency exceptions in the seeding scripts and asynchronous worker Neo4j ingest sessions.
-- **Backend Ledger Persistence**: Resolved a cascade of `TypeError` exceptions inside the transfer risk evaluation engine caused by implicit mathematical operations mixing SQLAlchemy `Decimal` instances and raw `float` data types.
-- **Audit Ledger Schema Patch**: Hotfixed the `audit_logs` database table and SQLAlchemy ORM by adding the missing `sender_account_id` and `receiver_account_id` properties to support the new dual-entry partitioning strategy.
-- **Dashboard Stability**: Applied CSS structural constraints to ensure `Recharts` receives valid parent dimensions, eliminating frontend component crashes due to `width(-1)` evaluation.
-- **Exception Masking Fixed**: Corrected a shadowed local `logger` assignment that was swallowing critical transaction exceptions, ensuring accurate error reporting.
-
----
-
-## Quickstart
-
-### Hugging Face Spaces (Production)
-
-The production instance is deployed on **Hugging Face Spaces** as a Docker container:
-
-1. Fork or duplicate the Space on [Hugging Face](https://huggingface.co/spaces).
-2. Configure the required **Space Secrets** (see [Cloud Services](#cloud-services) section above).
-3. The Space will automatically build the Docker image and start the application on port `7860`.
-
-### Local Development Setup
-
-Follow these steps to run a development instance of SentinelClear on your machine:
+## Local Setup
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/sahil8017/SentinelClear.git
 cd SentinelClear
-
-# 2. Setup your local env (copy default templates)
 cp .env.example .env
-
-# 3. Launch the full local stack (Docker)
 docker compose up -d --build
-
-# 4. Seed the database with mock users, accounts, transfers, and loans
-docker compose exec -T api-gateway python scripts/seed_data.py
+docker compose exec api-gateway python scripts/seed_data.py
 ```
 
-### Local Access Points
+### Access Points
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **Frontend UI** | [`http://localhost`](http://localhost) | Use seeded credentials or register |
-| **API Gateway** | [`http://localhost:8000`](http://localhost:8000) | — |
-| **API Documentation** | [`http://localhost:8000/docs`](http://localhost:8000/docs) | Interactive Swagger UI |
-| **Neo4j Browser** | [`http://localhost:7474`](http://localhost:7474) | `neo4j` / `sentinel_neo4j_2024` |
-| **RabbitMQ Management** | [`http://localhost:15672`](http://localhost:15672) | `sentinel` / `sentinel_rabbit_2024` |
-| **Grafana Dashboard** | [`http://localhost/grafana`](http://localhost/grafana) | `admin` / `admin` |
-| **Prometheus UI** | [`http://localhost:9090`](http://localhost:9090) | — |
+| Resource | URL |
+| :--- | :--- |
+| Frontend | `http://localhost` |
+| API Docs (Swagger) | `http://localhost:8000/docs` |
+| Neo4j Browser | `http://localhost:7474` |
+| RabbitMQ Console | `http://localhost:15672` |
 
-#### Seeded Demo Accounts
-Use these pre-configured accounts after running `scripts/seed_data.py`:
-* **System Admin**: Username `admin` / Password `admin123` / Transaction PIN `1234`
-* **Demo Customers**: Usernames `alice`, `bob`, `charlie` / Password `demo123` / Transaction PIN `1234`
-
-### Local CI Validation
-Validate changes locally using the same integration tests that run in the CI/CD pipeline:
-
-**Linux / macOS:**
-```bash
-bash scripts/ci-validate.sh
-```
-
-**Windows PowerShell:**
-```powershell
-.\scripts\ci-validate.ps1
-```
-
----
-
-## CI/CD Pipeline
-
-The project utilizes a comprehensive GitHub Actions workflow (`.github/workflows/ci.yml`) to validate every commit and pull request.
-
-The pipeline comprises four sequential stages:
-1. **Linting & Formatting**:
-   - Runs `ruff check` for Python linting.
-   - Runs `mypy` for static type verification.
-2. **Security Scan**:
-   - Runs `bandit` to identify common security issues in Python code.
-   - Runs `trivy` to scan repository dependencies and filesystem configurations for vulnerabilities.
-3. **Integration Testing**:
-   - Orchestrates the full multi-container stack inside GitHub Actions.
-   - Executes the end-to-end integration test suite (`tests/test_everything.py`) against the live instances to verify health, API functionality, audit chains, fraud rules, and WebSocket security.
-4. **Docker Publication**:
-   - Builds the production API gateway image.
-   - Pushes it to GitHub Container Registry (GHCR) as `ghcr.io/sahil8017/sentinelclear/api-gateway:latest` on successful merge to `main`.
-
----
-
-## Production Deployment
-
-SentinelClear is deployed on **Hugging Face Spaces** using the Docker SDK. The Space builds the multi-stage `Dockerfile`, bundles the React frontend and FastAPI backend into a single container, and exposes the application on port `7860`.
-
-### Hugging Face Space Configuration
-
-The `README.md` front-matter (YAML metadata at the top of this file) configures the Space:
-
-```yaml
-sdk: docker
-app_port: 7860
-```
-
-### Self-Hosted Production (Optional)
-
-For self-hosted deployments, SentinelClear includes a full production blueprint:
-
-- **API Load Balancer**: Nginx terminates SSL/TLS, serves compiled frontend assets, upgrades WebSocket connections, and load-balances traffic across API gateway replicas.
-- **Service Replication**:
-  - `api-gateway`: Automatically scaled to **3 active replicas** utilizing uvicorn multi-workers.
-  - `async-worker`: Scaled to **2 active replicas** to handle parallel RabbitMQ events.
-- **Telemetry Mesh**: Collects logs, traces, and metrics via OpenTelemetry collector, feeding them to Tempo and Prometheus respectively.
-- **Auto-Certificate Renewal**: Integrated `certbot` container polls and automatically renews Let's Encrypt certificates every 12 hours.
-
-```bash
-# 1. Clone repository
-git clone https://github.com/sahil8017/SentinelClear.git
-cd SentinelClear
-
-# 2. Setup production env
-cp .env.example .env.production
-# Edit the .env.production with your secure, production-grade credentials
-
-# 3. Run the deployment automation
-bash scripts/deploy.sh
-```
-
-The script will automatically configure the UFW firewall, request SSL certificates from Let's Encrypt for your domain, and start the high-availability stack using `docker-compose.prod.yml`.
-
----
-
-## API Surface
-
-The FastAPI gateway exposes **60+ endpoints** across 12 route groups:
-
-| Route Group | Prefix | Key Operations |
-|-------------|--------|----------------|
-| **Auth** | `/auth` | Register, Login, Firebase SSO, API Keys, Webhooks, Transaction PIN |
-| **Accounts** | `/accounts` | Create, Balance, Deposit, Kill Switch, Annual Limit |
-| **Transfers** | `/transfers` | Atomic P2P transfers, Pause/Confirm, Guardian Approve/Reject |
-| **Maker-Checker** | `/transfers/admin` | Pending queue, Four-Eyes Approve/Reject |
-| **Fraud Analytics** | `/fraud` | Dashboard stats, Rule configuration, STR generation |
-| **AML Graph** | `/aml` | Network topology, Circular trading detection, Cluster analysis |
-| **Loans & Credit** | `/loans` | Credit profiles, ML eligibility, Apply, Approve, EMI repayment |
-| **Ledger** | `/ledger` | Entry history, Global integrity verification |
-| **Notifications** | `/notifications` | Feed, Unread count, Mark read, Clear |
-| **Statements** | `/accounts/{id}/statement` | PDF export with audit hash |
-| **Whitelist** | `/whitelist` | Trusted contacts for UPI pause bypass |
-| **Admin** | `/admin` | Reconciliation, Chaos hub, Settings |
+After the stack is running, open the frontend and register a new account. Your sandbox balance will be instantly provisioned so you can execute transfers immediately.
 
 ---
 
@@ -396,115 +165,58 @@ The FastAPI gateway exposes **60+ endpoints** across 12 route groups:
 
 ```
 SentinelClear/
-├── .github/
-│   └── workflows/
-│       └── ci.yml                 # GitHub Actions CI/CD Pipeline
-├── alembic/                       # Database migration scripts
 ├── app/
-│   ├── main.py                    # FastAPI application entry point
-│   ├── config.py                  # Centralized Pydantic settings
-│   ├── database.py                # Async SQLAlchemy engine & session
-│   ├── dependencies.py            # JWT auth & API key dependencies
-│   ├── models.py                  # SQLAlchemy ORM models (20+ tables)
-│   ├── schemas.py                 # Pydantic request/response schemas
+│   ├── main.py                # FastAPI entry point, startup hooks, admin seeding
+│   ├── config.py              # Environment-driven settings (fraud thresholds, JWT, DB)
+│   ├── models.py              # SQLAlchemy ORM — 15+ tables (users, accounts, transfers, credit profiles)
+│   ├── schemas.py             # Pydantic request/response validation
+│   ├── dependencies.py        # JWT auth, role guards, admin checks
 │   ├── routers/
-│   │   ├── auth.py                # Authentication & Firebase SSO
-│   │   ├── accounts.py            # Account management & UPI safety
-│   │   ├── transfers.py           # Core transfer engine (1000+ LOC)
-│   │   ├── loans.py               # Credit hub & ML underwriting
-│   │   ├── fraud.py               # Fraud analytics dashboard
-│   │   ├── aml.py                 # AML graph topology queries
-│   │   ├── chaos.py               # Chaos engineering endpoints
-│   │   ├── notifications.py       # User notification feed
-│   │   ├── statement.py           # PDF statement generation
-│   │   ├── websocket.py           # Real-time fraud alert stream
-│   │   └── whitelist.py           # Trusted contact management
-│   ├── services/
-│   │   ├── fraud_service.py       # 3-layer risk orchestrator
-│   │   ├── fraud_rules.py         # 7 individual fraud detection rules
-│   │   ├── fraud/                 # ML scoring engine + model
-│   │   ├── ledger.py              # Double-entry ledger service
-│   │   ├── audit.py               # SHA-256 hash-chained audit log
-│   │   ├── loan_service.py        # Atomic loan disbursement/repayment
-│   │   ├── neo4j_service.py       # Graph DB ingestion & Cypher queries
-│   │   ├── cache.py               # Redis balance caching
-│   │   ├── rabbitmq.py            # Event publisher with DLQ
-│   │   ├── rate_limit.py          # Sliding-window rate limiter
-│   │   ├── upi_safety.py          # RBI/NPCI safety rule engine
-│   │   ├── geo.py                 # Impossible travel detection
-│   │   ├── reconciliation.py      # Automated balance verification
-│   │   └── idempotency.py         # Duplicate transaction prevention
-│   └── ml/
-│       ├── model/                 # Trained Random Forest artifacts
-│       └── train_loan_model.py    # Model training pipeline
-├── docker-compose.yml             # Local developer compose setup
-├── docker-compose.prod.yml        # Production high-availability blueprint
-├── Dockerfile                     # Multi-stage Docker build (HF Spaces)
-├── start.sh                       # Container entrypoint (migrations + worker + API)
-├── docs/                          # Project design and technical docs
-├── frontend/
-│   └── src/                       # React 18 SPA (Stripe design system)
-├── monitoring/
-│   ├── prometheus.yml             # Prometheus configurations
-│   ├── tempo-config.yml           # Grafana Tempo configurations
-│   └── otel-config.yml            # OpenTelemetry collector configurations
-├── nginx/
-│   ├── nginx.conf                 # Dev reverse proxy config
-│   └── nginx.prod.conf            # Prod reverse proxy config
-├── requirements.txt               # Pinned Python backend dependencies
-├── requirements-worker.txt        # Pinned worker dependencies
-├── scripts/
-│   ├── ci-validate.sh             # Linux local E2E validation script
-│   ├── ci-validate.ps1            # Windows local E2E validation script
-│   ├── deploy.sh                  # Ubuntu production installer
-│   └── seed_data.py               # Database seeder script
-├── tests/                         # Pytest + integration test suite
-└── worker/
-    ├── consumer.py                # Async RabbitMQ consumer + Neo4j ingestion
-    └── Dockerfile                 # Worker Docker image
+│   │   ├── auth.py            # Registration, login, profile setup, balance provisioning
+│   │   ├── accounts.py        # Account CRUD, balance lookups, kill switch, annual limits
+│   │   ├── transfers.py       # Transfer execution, fraud scoring, maker-checker holds
+│   │   ├── loans.py           # Credit profiles, eligibility checks, loan lifecycle
+│   │   └── aml.py             # Neo4j graph queries, STR generation, fraud dashboards
+│   └── services/
+│       ├── transfer_service.py   # Double-entry ledger, row-level locking, deadlock prevention
+│       ├── fraud_service.py      # Composite risk scoring across all detection rules
+│       ├── safety_service.py     # UPI safety checks (whitelist, guardian, kill switch)
+│       ├── ml_loan_service.py    # Credit score computation, loan eligibility ML
+│       └── audit_service.py      # Hash-chain audit trail, reconciliation engine
+├── frontend/src/
+│   ├── pages/
+│   │   ├── Dashboard.jsx         # Account overview, balance, recent activity
+│   │   ├── Transfer.jsx          # Send money, beneficiary management
+│   │   ├── CreditHub.jsx         # Credit score fetch, loan eligibility, loan management
+│   │   ├── AMLGraph.jsx          # Neo4j graph visualization
+│   │   ├── OpsDashboard.jsx      # Admin: risk engine tuning, live alerts, loan approvals
+│   │   ├── UPISafety.jsx         # Kill switch, whitelist, guardian settings
+│   │   └── FraudAnalytics.jsx    # Risk distribution charts, flagged transfer history
+│   └── lib/
+│       └── axios.js              # API client with JWT interceptor
+├── worker/                    # RabbitMQ consumer — notifications, graph sync
+├── monitoring/                # Prometheus, OpenTelemetry, Grafana Tempo configs
+├── nginx/                     # Reverse proxy routing
+├── scripts/                   # Database seeding (Treasury account bootstrap)
+├── tests/                     # Integration test suite
+├── alembic/                   # Database migration versions
+├── docker-compose.yml         # Local development stack
+└── Dockerfile                 # Multi-stage production build
 ```
 
 ---
 
-## Security Model
+## CI/CD
 
-| Layer | Mechanism |
-|-------|-----------|
-| **Authentication** | JWT (HS256) with configurable expiry + Firebase SSO (Google/GitHub) |
-| **Authorization** | Role-based (`USER` / `ADMIN`) with DB-verified admin checks |
-| **Step-Up Auth** | bcrypt-hashed transaction PIN required for fund transfers |
-| **API Keys** | SHA-256 hashed keys with prefix-based lookup (never stored raw) |
-| **Rate Limiting** | Redis-backed sliding window per IP (login) and per user (transfers) |
-| **Idempotency** | 24-hour TTL idempotency keys prevent duplicate transaction processing |
-| **CORS** | Explicit origin whitelist with restricted methods and headers |
-| **Webhook Signing** | HMAC-SHA256 payload signatures for outbound webhook delivery |
-| **Audit Integrity** | SHA-256 hash chain — every entry links to its predecessor |
+The pipeline in `.github/workflows/ci.yml` runs on every push:
 
----
-
-## Compliance Coverage
-
-| Regulation | Implementation |
-|-----------|----------------|
-| **RBI KYC** | PAN mandate enforcement for transactions ≥ ₹50,000 (Section 114B) |
-| **NPCI UPI Limits** | Daily volume cap (₹1,00,000), velocity cap (20 txn/day), RTGS floor (₹2,00,000) |
-| **PMLA 2002** | Suspicious Transaction Report (STR) auto-generation for FIU filing |
-| **RBI Circular 2024** | UPI Safety Framework: transaction pause, vulnerable group, kill switch, annual limits |
-| **Four Eyes Principle** | Cryptographic separation of duties for high-value approvals |
-| **AML/CFT** | Neo4j-powered circular trading detection and network cluster analysis |
+1. **Lint & Type Check** — `ruff check` and `mypy`
+2. **Security Scan** — `bandit` (Python) and `trivy` (container image)
+3. **Integration Tests** — Boots the full Docker stack and runs `tests/test_everything.py`
+4. **Container Build** — Multi-stage Docker image pushed to GitHub Container Registry
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
----
-
-<div align="center">
-
-**Built with precision for financial infrastructure that doesn't break.**
-
-*SentinelClear — Where every rupee is accounted for.*
-
-</div>
+MIT — see [LICENSE](LICENSE).

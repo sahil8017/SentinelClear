@@ -3,9 +3,9 @@ import apiClient from '../lib/axios';
 import { toast } from 'sonner';
 
 export function DevTools() {
-  const [method, setMethod] = useState('POST');
-  const [endpoint, setEndpoint] = useState('/api/accounts/me/deposit');
-  const [payload, setPayload] = useState('{\n  "amount": 50000\n}');
+  const [method, setMethod] = useState('GET');
+  const [endpoint, setEndpoint] = useState('/api/transfers/history/all');
+  const [payload, setPayload] = useState('{\n  \n}');
   const [response, setResponse] = useState(null);
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);

@@ -26,10 +26,8 @@ from app.services.fraud_rules import (
     check_amount_threshold,
     check_velocity,
     check_burst_velocity,
-    check_daily_volume,
     check_new_account,
     check_time_of_day,
-    check_recipient_concentration,
 )
 
 logger = logging.getLogger("sentinelclear.fraud")
@@ -54,12 +52,6 @@ DEFAULT_RULES = {
         "threshold_value": 10,
         "description": "Flag accounts making 10+ transfers in 60 seconds",
     },
-    "daily_volume": {
-        "weight": 1.2,
-        "enabled": True,
-        "threshold_value": settings.FRAUD_DAILY_VOLUME_LIMIT,
-        "description": "Flag when daily outflow exceeds limit",
-    },
     "new_account": {
         "weight": 1.3,
         "enabled": True,
@@ -72,23 +64,26 @@ DEFAULT_RULES = {
         "threshold_value": None,
         "description": "Flag transfers during unusual hours (1 AM – 5 AM)",
     },
-    "recipient_concentration": {
-        "weight": 1.0,
-        "enabled": True,
-        "threshold_value": None,
-        "description": "Flag repeated transfers to same recipient",
-    },
     "impossible_travel": {
         "weight": 2.0,
         "enabled": True,
-        "threshold_value": None,
-        "description": "Flag transfers with impossible geographical velocity",
+        "threshold_value": 800.0,
+        "description": "Flag transfers with velocity exceeding speed threshold (km/h)",
     },
 }
 
 
 async def seed_rule_configs(db: AsyncSession) -> None:
     """Insert default rule configs if they don't exist yet."""
+    # Clean up any removed rules from the database
+    from sqlalchemy import delete
+    await db.execute(
+        delete(FraudRuleConfig).where(
+            FraudRuleConfig.rule_name.in_(["daily_volume", "recipient_concentration"])
+        )
+    )
+    await db.commit()
+
     for rule_name, defaults in DEFAULT_RULES.items():
         result = await db.execute(
             select(FraudRuleConfig).where(FraudRuleConfig.rule_name == rule_name)
@@ -197,16 +192,6 @@ async def score_transaction(
         )
         rule_results.append(result)
 
-    cfg = configs.get("daily_volume")
-    if cfg and cfg["enabled"]:
-        result = await check_daily_volume(
-            db=db,
-            sender_account_id=sender_account_id,
-            amount=amount,
-            daily_limit=cfg["threshold_value"] or settings.FRAUD_DAILY_VOLUME_LIMIT,
-        )
-        rule_results.append(result)
-
     cfg = configs.get("new_account")
     if cfg and cfg["enabled"]:
         result = await check_new_account(
@@ -226,24 +211,15 @@ async def score_transaction(
         )
         rule_results.append(result)
 
-    cfg = configs.get("recipient_concentration")
-    if cfg and cfg["enabled"]:
-        result = await check_recipient_concentration(
-            db=db,
-            sender_account_id=sender_account_id,
-            receiver_account_id=receiver_account_id,
-            max_transfers=settings.FRAUD_RECIPIENT_MAX,
-            window_seconds=settings.FRAUD_RECIPIENT_WINDOW,
-        )
-        rule_results.append(result)
-
     cfg = configs.get("impossible_travel")
     if cfg and cfg["enabled"] and current_city:
         from app.services.fraud_rules import check_impossible_travel_rule
+        speed_threshold = float(cfg["threshold_value"]) if cfg["threshold_value"] else 800.0
         result = await check_impossible_travel_rule(
             db=db,
             sender_account_id=sender_account_id,
             current_city=current_city,
+            speed_threshold=speed_threshold,
         )
         rule_results.append(result)
 

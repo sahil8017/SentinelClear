@@ -1,10 +1,8 @@
 """UPI Safety Rules Service — implements RBI/NPCI mandated safety checks.
 
-Four safety layers:
-1. Transaction Pause   — P2P transfers > ₹10K paused unless whitelisted
-2. Vulnerable Group    — Age ≥70 or disabled + amount > ₹50K → guardian approval
-3. Emergency Kill Switch — Instant freeze of all outgoing payments
-4. Annual Receiving Limit — ₹25L cap on annual inbound credits
+Active safety layers:
+1. Vulnerable Group    — Age ≥70 or disabled + amount > ₹50K → guardian approval
+2. Emergency Kill Switch — Instant freeze of all outgoing payments
 """
 
 import logging
@@ -51,98 +49,6 @@ async def check_kill_switch(user: User) -> dict:
         }
     return {"blocked": False}
 
-
-async def check_annual_receiving_limit(
-    db: AsyncSession,
-    receiver_account: Account,
-    amount: float,
-) -> dict:
-    """Rule 4: Annual Receiving Limit — ₹25 Lakhs.
-
-    Check if the receiving account has already received more than
-    the annual limit in the current fiscal year. If so, the account
-    is frozen and no further credits are allowed.
-    """
-    amount = float(amount)
-    current_fy = _current_fy()
-
-    # Auto-reset if FY has rolled over
-    if receiver_account.annual_received_fy != current_fy:
-        receiver_account.annual_received = 0.0
-        receiver_account.annual_received_fy = current_fy
-        receiver_account.is_frozen = False
-
-    if receiver_account.is_frozen:
-        return {
-            "blocked": True,
-            "reason": "ANNUAL_LIMIT_FROZEN",
-            "detail": (
-                f"Receiving account has been frozen — annual receiving limit of "
-                f"₹{settings.UPI_ANNUAL_RECEIVING_LIMIT:,.0f} exceeded. "
-                f"The account holder must visit their bank to explain the source of funds."
-            ),
-        }
-
-    projected = float(receiver_account.annual_received) + amount
-    if projected > settings.UPI_ANNUAL_RECEIVING_LIMIT:
-        # Freeze the account
-        receiver_account.is_frozen = True
-        logger.warning(
-            "Account %s frozen — annual receiving limit breached (projected: ₹%.2f)",
-            receiver_account.id, projected,
-        )
-        return {
-            "blocked": True,
-            "reason": "ANNUAL_LIMIT_EXCEEDED",
-            "detail": (
-                f"This transaction would push the receiving account's annual credits to "
-                f"₹{projected:,.0f}, exceeding the ₹{settings.UPI_ANNUAL_RECEIVING_LIMIT:,.0f} limit. "
-                f"The receiving account has been frozen pending bank verification."
-            ),
-        }
-
-    return {"blocked": False}
-
-
-async def check_transaction_pause(
-    db: AsyncSession,
-    user: User,
-    receiver_account_id: str,
-    amount: float,
-) -> dict:
-    """Rule 1: Transaction Pause — transfers > ₹10K paused.
-
-    Does NOT apply if:
-    - The receiver is whitelisted by the sender
-    - The amount is below the threshold
-    """
-    if amount <= settings.UPI_PAUSE_THRESHOLD:
-        return {"pause": False}
-
-    # Check whitelist
-    result = await db.execute(
-        select(WhitelistedContact).where(
-            WhitelistedContact.user_id == user.id,
-            WhitelistedContact.contact_account_id == receiver_account_id,
-        )
-    )
-    whitelisted = result.scalar_one_or_none()
-    if whitelisted:
-        logger.info(
-            "Transfer > ₹10K to whitelisted contact %s — pause bypassed",
-            receiver_account_id,
-        )
-        return {"pause": False}
-
-    return {
-        "pause": True,
-        "reason": "TRANSACTION_PAUSE",
-        "detail": (
-            f"Transactions exceeding ₹{settings.UPI_PAUSE_THRESHOLD:,.0f} require explicit "
-            f"confirmation. Please verify this payment is legitimate and confirm to proceed."
-        ),
-        "cooldown_seconds": settings.UPI_PAUSE_COOLDOWN_SECONDS,
-    }
 
 
 async def check_vulnerable_group(
@@ -191,14 +97,3 @@ async def check_vulnerable_group(
     }
 
 
-async def update_annual_received(
-    receiver_account: Account,
-    amount: float,
-) -> None:
-    """Increment the annual received tally after a successful transfer."""
-    amount = float(amount)
-    current_fy = _current_fy()
-    if receiver_account.annual_received_fy != current_fy:
-        receiver_account.annual_received = 0.0
-        receiver_account.annual_received_fy = current_fy
-    receiver_account.annual_received = float(receiver_account.annual_received) + amount

@@ -1,7 +1,7 @@
 """Quick isolated test for the Maker-Checker flow."""
 import requests, os, uuid, asyncio, asyncpg
 
-BASE = "http://localhost:8000"
+BASE = "http://localhost:8000/api/v1"
 PASSWORD = "securepass123"
 uid = uuid.uuid4().hex[:6]
 ALICE = f"mc_alice_{uid}"
@@ -31,15 +31,15 @@ r = requests.post(f"{BASE}/auth/login", json={"username": BOB, "password": PASSW
 b_token = r.json()["access_token"]
 b_h = {"Authorization": f"Bearer {b_token}"}
 
-# Create accounts
-r = requests.post(f"{BASE}/accounts", json={"account_type": "savings"}, headers=a_h)
+# Get primary auto-provisioned accounts (these are the ones seeded by occupation)
+r = requests.get(f"{BASE}/accounts/me", headers=a_h)
 a_acct = r.json()["id"]
-r = requests.post(f"{BASE}/accounts", json={"account_type": "savings"}, headers=b_h)
+r = requests.get(f"{BASE}/accounts/me", headers=b_h)
 b_acct = r.json()["id"]
 
-# Deposit enough into Alice
-r = requests.post(f"{BASE}/accounts/{a_acct}/deposit", json={"amount": 2000000}, headers=a_h)
-print(f"Deposit: {r.status_code}")
+# Seed Alice as "Business Owner" → ₹10,00,000 (₹10 Lakh) via occupation-based seeding
+r = requests.patch(f"{BASE}/auth/profile", json={"occupation": "Business Owner"}, headers=a_h)
+print(f"Occupation seed: {r.status_code}")
 
 # Maker-Checker transfer (600k > 500k threshold)
 r_mc = requests.post(f"{BASE}/transfers", json={

@@ -219,8 +219,8 @@ export function AMLGraph() {
       ctx.stroke();
     }
 
-    if (isHighlight && (globalScale > 0.8 || isActiveScope)) {
-      const fontSize = Math.max(10 / globalScale, 4);
+    if (isHighlight && (globalScale > 0.6 || isActiveScope)) {
+      const fontSize = Math.max(12 / globalScale, 8);
       ctx.font = `${fontSize}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#0A2540';
@@ -327,7 +327,7 @@ export function AMLGraph() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* ── Force-Directed Graph ── */}
-        <div ref={containerRef} className="lg:col-span-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded shadow-[inset_0_2px_10px_rgba(0,0,0,0.01)] overflow-hidden relative" style={{ height: '650px' }}>
+        <div ref={containerRef} className="lg:col-span-3 bg-[#f6f9fc] border border-[#e3e8ee] rounded shadow-[inset_0_2px_10px_rgba(0,0,0,0.01)] overflow-hidden relative" style={{ height: 'max(400px, calc(100vh - 280px))' }}>
           {isLoading ? (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4">

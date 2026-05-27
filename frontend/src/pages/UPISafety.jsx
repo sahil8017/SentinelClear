@@ -192,15 +192,32 @@ export function UPISafety() {
       {/* ═══ ANNUAL RECEIVING LIMIT ═══ */}
       <section>
         <div className="bg-white border border-[#e3e8ee] rounded-[16px] p-6 sm:p-8 shadow-[0_2px_5px_rgba(0,0,0,0.02)]">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-12 h-12 rounded-[8px] bg-[#f6f9fc] border border-[#e3e8ee] flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#6B7C93] text-[24px]">account_balance_wallet</span>
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 rounded-[8px] bg-[#f6f9fc] border border-[#e3e8ee] flex items-center justify-center">
+                <span className="material-symbols-outlined text-[#6B7C93] text-[24px]">account_balance_wallet</span>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-[18px] font-medium text-[#0A2540]">Annual Receiving Limit</h3>
+                  {annualLimit && (() => {
+                    const tier = annualPercent >= 80 ? 'HIGH' : annualPercent >= 50 ? 'MODERATE' : 'LOW';
+                    const tierColor = tier === 'HIGH' ? '#df1b41' : tier === 'MODERATE' ? '#ff6118' : '#0CBF4C';
+                    const tierBg = tier === 'HIGH' ? '#fff5f5' : tier === 'MODERATE' ? '#fff5f2' : '#e7f9ed';
+                    return (
+                      <span style={{ backgroundColor: tierBg, color: tierColor, border: `1px solid ${tierColor}30` }}
+                        className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                        {tier} RISK
+                      </span>
+                    );
+                  })()}
+                </div>
+                <p className="text-[13px] text-[#6B7C93] mt-0.5">
+                  {annualLimit
+                    ? `${formatINR(annualLimit.annual_limit)} · dynamically adjusted to your risk profile`
+                    : 'Fiscal Year Cap'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-[18px] font-medium text-[#0A2540]">Annual Receiving Limit</h3>
-              <p className="text-[13px] text-[#6B7C93] mt-0.5">₹25 Lakh Fiscal Year Cap</p>
-            </div>
-          </div>
 
           {annualLimit && (
             <div className="space-y-6">
