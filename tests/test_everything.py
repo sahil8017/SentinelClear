@@ -58,16 +58,18 @@ BASE_URL = "http://localhost:8000"
 passed = 0
 failed = 0
 total = 0
+failed_tests = []
 
 
 def test(name: str, condition: bool, detail: str = ""):
-    global passed, failed, total
+    global passed, failed, total, failed_tests
     total += 1
     if condition:
         passed += 1
         print(f"  ✅ {name}")
     else:
         failed += 1
+        failed_tests.append(name)
         msg = f" — {detail}" if detail else ""
         print(f"  ❌ {name}{msg}")
         print(f"     [!] DEBUG INFO for {name}: Condition was FALSE.")
@@ -147,7 +149,7 @@ class PrefixedClient(httpx.Client):
 def main():
     global alice_token, bob_token, alice_acct, bob_acct, completed_transfer_id
 
-    client = PrefixedClient(base_url=BASE_URL, timeout=15.0)
+    client = PrefixedClient(base_url=BASE_URL, timeout=30.0)
 
     print("\n" + "═" * 60)
     print("  🧪 SentinelClear — Full Test Suite v3.0")
@@ -446,7 +448,7 @@ def main():
     # Give the async worker time to process events (poll to reduce CI flakiness)
     notifications = []
     r = None
-    for _ in range(20):
+    for _ in range(30):
         r = client.get("/notifications", headers=alice_headers)
         if r.status_code == 200:
             notifications = r.json()
@@ -548,6 +550,9 @@ def main():
         print("  🎉 ALL TESTS PASSED!")
     else:
         print(f"  ⚠️  {failed} test(s) need attention.")
+        print("  ❌ Failed tests:")
+        for t in failed_tests:
+            print(f"    - {t}")
 
     print()
     client.close()

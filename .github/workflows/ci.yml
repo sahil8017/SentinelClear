@@ -63,6 +63,9 @@ jobs:
       - name: Start services
         run: |
           docker compose up -d --build postgres-db rabbitmq redis neo4j api-gateway async-worker nginx
+      - name: Verify worker health
+        run: |
+          docker compose logs async-worker --tail=50
       - name: Wait for API health
         run: |
           echo "Waiting for API health..."

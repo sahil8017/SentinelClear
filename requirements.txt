@@ -44,7 +44,7 @@ apscheduler==3.10.4
 python-dotenv==1.0.1
 
 # WebSockets
-websockets>=12.0
+websockets>=10.0
 
 # Chaos Engineering
 docker>=7.0.0
